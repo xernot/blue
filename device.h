@@ -11,6 +11,7 @@ typedef struct {
     int trusted;
     int blocked;
     int battery;          /* -1 if unknown */
+    int charging;         /* 1 if connected to power */
     char icon[64];        /* device type from BlueZ */
 } Device;
 

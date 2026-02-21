@@ -65,14 +65,13 @@ static int cache_upower_paths(UPowerPath *paths, int max)
     return count;
 }
 
-/* Look up battery for a BT address using cached upower paths.
-   Returns percentage (0-100) or -1 if not found. */
-static int lookup_upower_battery(const UPowerPath *paths, int path_count,
-                                 const char *addr)
+/* Look up battery + charging state for a BT device using cached upower paths. */
+static void lookup_upower_battery(const UPowerPath *paths, int path_count,
+                                  Device *d)
 {
     /* Convert XX:XX:XX:XX:XX:XX to XX_XX_XX_XX_XX_XX for matching */
     char addr_under[18];
-    snprintf(addr_under, sizeof(addr_under), "%s", addr);
+    snprintf(addr_under, sizeof(addr_under), "%s", d->address);
     for (int i = 0; addr_under[i]; i++)
         if (addr_under[i] == ':') addr_under[i] = '_';
 
@@ -84,26 +83,28 @@ static int lookup_upower_battery(const UPowerPath *paths, int path_count,
             break;
         }
     }
-    if (!match) return -1;
+    if (!match) return;
 
     char cmd[CMD_BUF];
     snprintf(cmd, sizeof(cmd), "upower -i '%s' 2>/dev/null", match);
     FILE *fp = popen(cmd, "r");
-    if (!fp) return -1;
+    if (!fp) return;
 
-    int battery = -1;
     char line[LINE_BUF];
     while (fgets(line, sizeof(line), fp)) {
-        char *pct = strstr(line, "percentage:");
-        if (pct) {
-            pct += 11;
-            while (*pct && isspace((unsigned char)*pct)) pct++;
-            battery = atoi(pct);
-            break;
+        char *val;
+        if ((val = strstr(line, "percentage:"))) {
+            val += 11;
+            while (*val && isspace((unsigned char)*val)) val++;
+            d->battery = atoi(val);
+        } else if ((val = strstr(line, "state:"))) {
+            val += 6;
+            while (*val && isspace((unsigned char)*val)) val++;
+            if (strstr(val, "charging") && !strstr(val, "discharging"))
+                d->charging = 1;
         }
     }
     pclose(fp);
-    return battery;
 }
 
 /* ── bluetoothctl wrappers ─────────────────────── */
@@ -241,10 +242,9 @@ int bt_get_devices(Device *devs, int max)
     for (int i = 0; i < count; i++) {
         query_device_info(&devs[i]);
 
-        /* upower battery fallback using cached paths */
-        if (devs[i].battery < 0 && up_count > 0)
-            devs[i].battery = lookup_upower_battery(up_paths, up_count,
-                                                    devs[i].address);
+        /* upower: battery fallback + charging state */
+        if (up_count > 0)
+            lookup_upower_battery(up_paths, up_count, &devs[i]);
     }
     return count;
 }

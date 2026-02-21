@@ -176,6 +176,14 @@ Colors indicate status at a glance:
 | `Makefile` | Build system (make / make clean) |
 | `battery_status.c` | Legacy standalone battery utility (not part of main build) |
 
+## Known Limitations
+
+- **Charging state not available for all devices.** The Bluetooth Battery Service (UUID 0x180F) only exposes battery percentage — there is no field for charging state. Some devices (like phones or headphones) report charging through upower, but many (notably Logitech mice) do not. Their firmware simply doesn't send that data over Bluetooth. Even vendor tools like Logitech Options+ detect charging via proprietary USB HID, not Bluetooth. For these devices, `blue` cannot show the ⚡ charging indicator.
+
+- **Battery percentage unavailable for some devices.** Devices that don't implement the Bluetooth Battery Service (e.g. JBL speakers) will show `—` instead of a battery bar. This is a device firmware limitation.
+
+- **Linux only.** The Bluetooth backend requires `bluetoothctl` (BlueZ). Other platforms compile but all BT functions return "not supported".
+
 ## License
 
 This project is unlicensed. Do whatever you want with it.

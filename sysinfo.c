@@ -32,12 +32,11 @@ static void read_battery(SysInfo *si)
         fclose(fp);
     }
 
-    fp = fopen("/sys/class/power_supply/BAT0/status", "r");
-    if (!fp) fp = fopen("/sys/class/power_supply/BAT1/status", "r");
+    fp = fopen("/sys/class/power_supply/AC/online", "r");
     if (fp) {
-        char buf[32];
-        if (fgets(buf, sizeof(buf), fp))
-            si->battery_charging = (strstr(buf, "Charging") != NULL);
+        int online = 0;
+        if (fscanf(fp, "%d", &online) == 1)
+            si->battery_charging = online;
         fclose(fp);
     }
 }

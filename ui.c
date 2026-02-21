@@ -199,7 +199,7 @@ static void putfield(const char *s, int w)
 }
 
 /* Render battery indicator into buf */
-static void render_battery(char *buf, size_t bufsz, int battery)
+static void render_battery(char *buf, size_t bufsz, int battery, int charging)
 {
     if (battery < 0) {
         snprintf(buf, bufsz, "%s " "\xe2\x80\x94" "%s", C_DIM, C_RESET);
@@ -225,7 +225,11 @@ static void render_battery(char *buf, size_t bufsz, int battery)
     }
     bar[pos] = '\0';
 
-    snprintf(buf, bufsz, "%s%3d%% %s%s", color, battery, bar, C_RESET);
+    if (charging)
+        snprintf(buf, bufsz, "%s%3d%% %s%s " C_BYELLOW "\xe2\x9a\xa1" C_RESET,
+                 color, battery, bar, C_RESET);
+    else
+        snprintf(buf, bufsz, "%s%3d%% %s%s", color, battery, bar, C_RESET);
 }
 
 /* ── Main draw ─────────────────────────────────── */
@@ -325,7 +329,7 @@ void ui_draw(Device *devs, int count, int selected, int scanning,
 
             const char *sc = status_color(d);
             char batbuf[256];
-            render_battery(batbuf, sizeof(batbuf), d->battery);
+            render_battery(batbuf, sizeof(batbuf), d->battery, d->charging);
 
             rs();
             if (i == selected) {
