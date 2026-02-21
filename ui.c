@@ -367,13 +367,11 @@ void ui_draw(Device *devs, int count, int selected, int scanning,
     /* ── Keybindings (full width) ── */
     rs();
     printf(" %ss%s Scan  %sc%s Connect  %sd%s Disconnect  "
-           "%sp%s Pair  %st%s Trust  %sx%s Remove",
+           "%sp%s Pair  %st%s Trust  %sx%s Remove  "
+           "%sr%s Refresh  %sq%s Quit  "
+           "%s" "\xe2\x86\x91\xe2\x86\x93" "%s Nav",
            C_BOLD, C_RESET, C_BOLD, C_RESET, C_BOLD, C_RESET,
-           C_BOLD, C_RESET, C_BOLD, C_RESET, C_BOLD, C_RESET);
-    re();
-    rs();
-    printf(" %sr%s Refresh  %sq%s Quit  "
-           "%s" "\xe2\x86\x91\xe2\x86\x93" "%s Navigate",
+           C_BOLD, C_RESET, C_BOLD, C_RESET, C_BOLD, C_RESET,
            C_BOLD, C_RESET, C_BOLD, C_RESET, C_BOLD, C_RESET);
     re();
 
