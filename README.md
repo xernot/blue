@@ -1,100 +1,97 @@
 # blue
 
-An interactive Bluetooth device manager for the Linux terminal.
+An interactive device management TUI for Linux. Manages Bluetooth devices, monitors WiFi with real speed tests, tracks network printer health, and shows system diagnostics — all in a full-height 4-pane terminal dashboard.
 
-`blue` is a lightweight TUI application that scans, lists, connects, and manages Bluetooth devices through `bluetoothctl` — no libraries beyond libc, no ncurses, no dbus bindings. Just a C program and a terminal.
+No libraries beyond libc, no ncurses, no dbus bindings. Just C and a terminal.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                                                                              │
-│  blue — Bluetooth Device Manager          trurl  99%  cpu  6%  mem 40%  dsk 11%
-│                                                                              │
-├─────────────────────────────────────────────────────┬────────────────────────┤
-│  Device               Status        Battery         │                        │
-│  ─────────────────────────────────────────────────  │        . . .           │
-│ ▸ xirs keyboard       Connected     80% ████████░░  │                        │
-│   JBL Charge 5        Connected      —              │     (          )       │
-│   xirs mouse          Connected     75% ███████░░░  │    ((          ))      │
-│   mouse office        Paired         —              │   (((    .     )))     │
-│   keyboard office     Paired         —              │    ((          ))      │
-│   JBL WAVE FLEX       Paired         —              │     (          )       │
-│  ─────────────────────────────────────────────────  │                        │
-│   66-87-7D-0E-2D-18   Discovered     —              │        . . .           │
-│   73-89-76-CB-AB-DD   Discovered     —              │                        │
-│                                                     │   xirs bluetooth       │
-│                                                     │       handler          │
-│                                                     │                        │
-├─────────────────────────────────────────────────────┴────────────────────────┤
-│  s Scan  c Connect  d Disconnect  p Pair  t Trust  x Remove                  │
-│  r Refresh  q Quit  ↑↓ Navigate                                             │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  blue — Device Management                                            trurl  Ubuntu 24.04.4 LTS │
+├─────────────────────────────┬──────────────────────┬────────────────────────┬──────────────────┤
+│  Bluetooth                  │  Network ●           │  Printer ●            │  System          │
+│  Device    Status  Battery  │                      │  HP Color Laser MFP   │                  │
+│  ────────────────────────── │  SSID   home         │  IP 192.168.68.60     │  trurl 99%⚡     │
+│ ▸ xirs keyboard  Connected │  IP     192.168.68.62│                       │  Kernel 6.17.0.. │
+│   xirs mouse     Connected │  Link   5187 Mbps    │  C ░░░░░░░░░░   0%   │  Uptime 2d 5h 49m│
+│   JBL Charge 5   Paired    │  Signal -33 dBm      │  M ░░░░░░░░░░   0%   │  CPU      3%     │
+│  ────────────────────────── │  Iface  wlp0s20f3    │  Y ██░░░░░░░░  22%   │  Memory  42%     │
+│   66-87-7D-0E..  Discovered│                      │  K █░░░░░░░░░  10%   │  Disk    67%     │
+│                             │  Speedtest           │                       │                  │
+│                             │  ↓  209 Mbps         │  Health               │  Disk I/O        │
+│                             │  ↑  47 Mbps          │  Imaging Unit    44%  │  Read    1.2 MB/s│
+│                             │  Ping   21 ms  14:05 │  Fuser Life      55%  │  Write   0.5 MB/s│
+│                             │                      │  Waste Toner    100%  │                  │
+│                             │  ⊙ Testing...        │                       │  Temp    52°C    │
+│                             │                      │                       │  Fan 1  3073 RPM │
+│                             │                      │                       │  Fan 2  3073 RPM │
+│                             │                      │                       │                  │
+│                             │                      │                       │  Services        │
+│                             │                      │                       │  ✓ All OK        │
+├─────────────────────────────┴──────────────────────┴────────────────────────┴──────────────────┤
+│  Speedtest ████████████░░░░░░░░ 62%  12s                                                      │
+├────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  s Scan  S Speedtest  c Connect  d Disconnect  p Pair  t Trust  x Remove  r Refresh  q Quit   │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Features
 
-- **Interactive TUI** with box-drawing frame, color-coded status, and battery bars
-- **Non-interactive CLI** subcommands for scripting (`blue list`, `blue connect <addr>`, ...)
-- **Live system stats** in the header — hostname, battery, CPU, memory, and disk usage (updates every second)
-- **Device grouping** — connected first, then paired, then discovered, with a visual separator
-- **Confirmation prompts** for destructive actions (device removal)
-- **User-friendly names** — reads BlueZ `Alias` field so your custom device names show up
-- **Battery readout** from both BlueZ and upower (fallback), rendered as colored block bars
-- **Terminal resize** handling (responds to SIGWINCH)
-- **Zero dependencies** beyond libc — no ncurses, no dbus, no external libraries
-- **Vim-style navigation** (j/k) alongside arrow keys
+**Bluetooth** — Scan, connect, disconnect, pair, trust, and remove devices. Live battery levels with colored bar indicators. Vim-style navigation (j/k) alongside arrow keys. Confirmation prompts for destructive actions.
 
-## Requirements
+**Network** — WiFi SSID, IP, link speed, and signal strength (color-coded by dBm). Real internet speed test (download, upload, ping) runs in background — never blocks the UI. Auto-reruns every 10 minutes, or trigger manually with `S`.
 
-- **Linux** with BlueZ installed
-- **bluetoothctl** (part of the `bluez-utils` or `bluez` package)
-- A terminal with **UTF-8** and **ANSI color** support
-- **GCC** or any C11-compatible compiler
+**Speedtest** — Results cached to disk (`~/.cache/blue/speedtest`) and loaded on startup. Progress bar in the status bar shows elapsed time during a run. Spinner indicator in the network pane while testing.
 
-Optional:
-- **upower** — used as a battery fallback for devices that don't report battery through BlueZ
+**Printer** — Auto-discovers printers on the network via mDNS. CMYK toner levels with colored bars. Health section with imaging unit, fuser, and waste toner. Works on any network without configuration.
 
-## Build
+**System** — Hostname and OS in the header bar. System pane shows laptop battery with charging indicator, kernel version, uptime, live CPU/memory/disk usage, disk I/O throughput (read/write MB/s), CPU temperature, fan speeds, and failed systemd services.
+
+## Install
+
+### Dependencies
 
 ```bash
+# Bluetooth
+sudo apt install bluez
+
+# Network info
+sudo apt install iw iproute2
+
+# Printer discovery & monitoring
+sudo apt install avahi-utils snmp
+
+# Speed test
+sudo apt install speedtest-cli
+
+# Battery (usually pre-installed)
+sudo apt install upower
+```
+
+### Build
+
+```bash
+git clone https://github.com/xernot/blue.git
+cd blue
 make
 ```
 
-That's it. No `./configure`, no `cmake`, no dependency fetching. The Makefile compiles with `-Wall -Wextra -pedantic -std=c11`.
+That's it. No `./configure`, no `cmake`, no dependency fetching. Compiles with `-Wall -Wextra -pedantic -std=c11`.
 
 ```bash
 make clean          # remove build artifacts
 make CC=clang       # use a different compiler
 ```
 
-## Usage
-
-### Interactive mode
+### Run
 
 ```bash
-./blue
+./blue              # interactive TUI (minimum 100 columns, full terminal height)
 ```
 
-Launches the full-screen TUI. Devices are listed with their connection status and battery level. The header shows live system information.
-
-### Keybindings
-
-| Key | Action |
-|-----|--------|
-| `↑` / `k` | Move selection up |
-| `↓` / `j` | Move selection down |
-| `s` | Toggle Bluetooth scanning |
-| `c` | Connect to selected device |
-| `d` | Disconnect selected device |
-| `p` | Pair with selected device |
-| `t` | Trust selected device |
-| `x` | Remove device (asks for confirmation) |
-| `r` | Refresh device list |
-| `q` | Quit |
-
-### CLI subcommands
+## CLI Subcommands
 
 ```bash
-./blue list                     # print all known devices
+./blue list                     # print all known Bluetooth devices
 ./blue scan                     # scan for 5 seconds, print results
 ./blue connect D6:21:42:4F:64:A1
 ./blue disconnect D6:21:42:4F:64:A1
@@ -106,83 +103,121 @@ Launches the full-screen TUI. Devices are listed with their connection status an
 
 All action subcommands exit with `0` on success, `1` on failure — suitable for scripting.
 
+## Keybindings
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k` | Move selection up |
+| `↓` / `j` | Move selection down |
+| `s` | Toggle Bluetooth scanning |
+| `S` | Start speed test |
+| `c` | Connect to selected device |
+| `d` | Disconnect selected device |
+| `p` | Pair with selected device |
+| `t` | Trust selected device |
+| `x` | Remove device (asks y/n) |
+| `r` | Refresh device list |
+| `q` | Quit (asks y/n) |
+
+## Configuration
+
+All tunables live in [`config.h`](config.h):
+
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `PRINTER_SNMP_COMMUNITY` | `"public"` | SNMP community string |
+| `PRINTER_REFRESH_MS` | `60000` | Printer re-query interval |
+| `PRINTER_MAX_SUPPLIES` | `16` | Max supply entries to track |
+| `BT_REFRESH_MS` | `5000` | Bluetooth device list refresh |
+| `NETWORK_REFRESH_MS` | `5000` | WiFi status refresh |
+| `SPEEDTEST_INTERVAL_MS` | `600000` | Speed test auto-run (10 min) |
+| `SPEEDTEST_EXPECTED_SEC` | `20` | Expected test duration (progress bar) |
+| `SPEEDTEST_PROGRESS_MS` | `500` | Progress bar update interval |
+| `SYSINFO_REFRESH_MS` | `1000` | CPU/mem/disk refresh |
+| `HEALTH_MAX_FANS` | `4` | Max fan speed entries to track |
+| `THERMAL_ZONE_PREFERRED` | `"x86_pkg_temp"` | Preferred thermal zone for CPU temp |
+| `THERMAL_ZONE_FALLBACK` | `"acpitz"` | Fallback thermal zone |
+| `SPEEDTEST_CMD` | `"speedtest.sh"` | Speed test command name |
+| `HEALTH_REFRESH_MS` | `2000` | Disk I/O / temp / fans / services refresh |
+| `UI_POLL_INTERVAL_US` | `50000` | Main loop poll (50ms) |
+
+Speed test results are cached to `~/.cache/blue/speedtest` and loaded on startup.
+
 ## Architecture
 
 ```
-main.c        Entry point, CLI parsing, event loop, signal handling
-bt.c / bt.h   Bluetooth backend (bluetoothctl + upower subprocesses)
-ui.c / ui.h   TUI rendering (raw ANSI escape codes, termios raw mode)
-sysinfo.c/h   Live system stats (reads /proc, /sys, statvfs)
-device.h      Shared Device struct
-Makefile      Build system
+main.c        — entry point, CLI parsing, event loop, key handling, timer management
+bt.c/h        — Bluetooth backend (bluetoothctl + upower subprocesses)
+ui.c/h        — TUI rendering (raw ANSI escape codes, 4-pane layout, full height, buffered output)
+printer.c/h   — Printer status via SNMP (auto-discovered via avahi mDNS)
+network.c/h   — WiFi status (iw + ip subprocesses)
+speedtest.c/h — Background speed test (fork + speedtest --simple, disk cache)
+sysinfo.c/h   — System stats (/proc, /sys, statvfs)
+health.c/h    — System health (OS, kernel, uptime, disk I/O, CPU temp, fan speed, failed services)
+device.h      — shared Device struct
+config.h      — all configurable constants
 ```
 
 ### Design decisions
 
-**No ncurses.** The TUI uses raw ANSI escape codes and `termios` directly. This eliminates the ncurses dependency entirely — `blue` compiles with nothing but a C compiler and libc.
+**No ncurses.** Raw ANSI escape codes and `termios` directly. Zero dependency on terminal libraries.
 
-**No libdbus.** Bluetooth operations go through `bluetoothctl` and `upower` as subprocesses via `popen()`. This avoids the complexity of the D-Bus C API and its transitive dependencies.
+**Full terminal height.** The TUI fills the entire terminal. Pane body rows expand dynamically.
 
-**Single-threaded event loop.** Non-blocking stdin (`O_NONBLOCK` + `fcntl`) with a 50ms poll interval. Two independent timers drive updates:
-- **1 second** — system stats (CPU, memory, disk, battery)
-- **5 seconds** — Bluetooth device list refresh
+**Buffered rendering.** Entire frame is buffered (64KB) and flushed atomically. Per-line erase (`\033[2K`) instead of screen clear (`\033[2J`) prevents visible flicker.
 
-**Platform stubs.** All Linux-specific code (`bluetoothctl`, `/proc`, `/sys`) lives behind `#ifdef __linux__`. Other platforms get compilable stubs that return "not supported" — the project builds everywhere, even if Bluetooth only works on Linux.
+**No libdbus / libsnmp / libnl.** All external data comes via subprocess calls (`popen`, `fork`+`exec`). This avoids heavy C library dependencies entirely.
 
-### How it reads device info
+**Single-threaded event loop.** Non-blocking stdin with 50ms poll. Independent timers drive each data source at different intervals.
 
-1. `bluetoothctl devices` — enumerates all known devices
-2. `bluetoothctl info <addr>` — reads `Alias`, `Paired`, `Connected`, `Trusted`, `Blocked`, `Battery Percentage` for each device
-3. `upower -e` + `upower -i <path>` — battery fallback for devices that don't expose battery through BlueZ (cached per refresh cycle to avoid redundant subprocess calls)
+**Non-blocking speed test.** The `speedtest.sh --simple` command takes ~20 seconds. It runs in a `fork()`ed child process with a pipe — the UI stays fully responsive. Results are cached to disk so they persist across restarts. Progress bar switches to a spinner when exceeding the expected duration.
 
-### System stats sources
+**Printer auto-discovery.** `avahi-browse _ipp._tcp` finds printers via mDNS/Bonjour. The discovered IP is cached; if the printer goes offline, re-discovery happens on the next refresh cycle. No hardcoded IPs.
 
-| Stat | Source |
+**Disk I/O throughput.** Computed by reading `/proc/diskstats` and calculating sector deltas between reads. Detects nvme and sd devices automatically.
+
+**CPU temperature & fans.** Temperature from `/sys/class/thermal/` (prefers `x86_pkg_temp`, falls back to `acpitz`). Fan speeds from `/sys/class/hwmon/*/fan*_input` (virtual ACPI fans filtered out).
+
+**Platform stubs.** All Linux-specific code lives behind `#ifdef __linux__`. Other platforms get compilable stubs that return "not supported".
+
+### Data sources
+
+| Data | Source |
 |------|--------|
-| Hostname | `gethostname()` |
+| Bluetooth devices | `bluetoothctl devices` + `bluetoothctl info <addr>` |
+| Device battery | BlueZ Battery Service + `upower -i` fallback |
+| WiFi info | `iw dev <iface> link` + `ip -4 addr show` |
+| Speed test | `speedtest.sh --simple` (forked background process) |
+| Speed test cache | `~/.cache/blue/speedtest` |
+| Printer discovery | `avahi-browse -rpt _ipp._tcp` (mDNS) |
+| Printer supplies | `snmpget`/`snmpwalk` via Printer MIB OIDs |
+| OS name | `/etc/os-release` (PRETTY_NAME) |
+| Kernel version | `uname()` syscall |
+| Uptime | `/proc/uptime` |
+| CPU usage | `/proc/stat` (delta between reads) |
+| Memory usage | `/proc/meminfo` (MemTotal - MemAvailable) |
+| Disk usage | `statvfs("/")` |
+| Disk I/O | `/proc/diskstats` (sector delta) |
+| CPU temperature | `/sys/class/thermal/thermal_zone*/temp` |
+| Fan speed | `/sys/class/hwmon/*/fan*_input` |
 | Battery | `/sys/class/power_supply/BAT0/capacity` |
-| CPU | `/proc/stat` (delta between reads) |
-| Memory | `/proc/meminfo` (`MemTotal` - `MemAvailable`) |
-| Disk | `statvfs("/")` |
-
-## TUI layout
-
-The interface is split into sections within a box-drawing frame:
-
-- **Header** — application title on the left, live system stats on the right (hostname, battery %, CPU %, memory %, disk %)
-- **Device list** (left panel) — grouped and sorted: connected devices first, then paired, then discovered. A thin separator line divides known devices from newly discovered ones. Selected device is highlighted with `▸`
-- **Art panel** (right panel) — Bluetooth signal art and branding, separated by a vertical divider with `┬`/`┴` junctions
-- **Status bar** — feedback messages ("Connecting to...", "Remove cancelled") and confirmation prompts
-- **Keybindings** — always-visible reference at the bottom
-
-Colors indicate status at a glance:
-- **Green** — connected / healthy
-- **Yellow** — paired / moderate
-- **Red** — low battery / high resource usage
-- **Dim** — discovered / inactive
-
-## Files
-
-| File | Description |
-|------|-------------|
-| `main.c` | Entry point, argument parsing, interactive event loop, device sorting, signal handling |
-| `bt.c` | Bluetooth backend — device enumeration, connect/disconnect/pair/trust/remove via `bluetoothctl` |
-| `bt.h` | Bluetooth API (9 functions) |
-| `ui.c` | Full-screen TUI — raw mode, ANSI rendering, box-drawing frame, battery bars, ASCII art panel |
-| `ui.h` | UI API and key code constants |
-| `sysinfo.c` | System info reader — CPU, memory, disk, battery from procfs/sysfs |
-| `sysinfo.h` | SysInfo struct |
-| `device.h` | Device struct shared across modules |
-| `Makefile` | Build system (make / make clean) |
-| `battery_status.c` | Legacy standalone battery utility (not part of main build) |
+| Failed services | `systemctl --failed --no-legend --no-pager` |
 
 ## Known Limitations
 
-- **Charging state not available for all devices.** The Bluetooth Battery Service (UUID 0x180F) only exposes battery percentage — there is no field for charging state. Some devices (like phones or headphones) report charging through upower, but many (notably Logitech mice) do not. Their firmware simply doesn't send that data over Bluetooth. Even vendor tools like Logitech Options+ detect charging via proprietary USB HID, not Bluetooth. For these devices, `blue` cannot show the ⚡ charging indicator.
+- **Charging state not available for all BT devices.** The Bluetooth Battery Service only exposes percentage — no charging field. Some devices report charging through upower, but many (e.g. Logitech mice) do not.
 
-- **Battery percentage unavailable for some devices.** Devices that don't implement the Bluetooth Battery Service (e.g. JBL speakers) will show `—` instead of a battery bar. This is a device firmware limitation.
+- **Battery unavailable for some devices.** Devices without Bluetooth Battery Service (e.g. JBL speakers) show `—` instead of a bar.
 
-- **Linux only.** The Bluetooth backend requires `bluetoothctl` (BlueZ). Other platforms compile but all BT functions return "not supported".
+- **Printer requires SNMP.** The printer must respond to SNMP v1 queries. Most network printers do, but some may have SNMP disabled.
+
+- **Speed test requires internet.** The `speedtest` command connects to Ookla servers. If offline, it simply shows no result.
+
+- **Speed test phase detection not possible.** `speedtest --simple` outputs all results at once when done, not incrementally per phase. The progress bar is time-based, not phase-based.
+
+- **Minimum terminal width: 100 columns.** The 4-pane layout needs room. Narrower terminals will be clamped to 100.
+
+- **Linux only.** All backends require Linux-specific tools and paths. Other platforms compile but return stubs.
 
 ## License
 

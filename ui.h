@@ -3,6 +3,10 @@
 
 #include "device.h"
 #include "sysinfo.h"
+#include "printer.h"
+#include "network.h"
+#include "speedtest.h"
+#include "health.h"
 
 /* Key codes returned by ui_read_key() */
 #define KEY_NONE   -1
@@ -18,12 +22,11 @@ void ui_cleanup(void);
 
 /* Full screen redraw */
 void ui_draw(Device *devs, int count, int selected, int scanning,
-             const char *status_msg, const SysInfo *si);
+             const char *status_msg, const SysInfo *si,
+             const PrinterInfo *pi, const NetworkInfo *ni,
+             const SpeedTestResult *st, const HealthInfo *hi);
 
 /* Non-blocking key read. Returns character, KEY_UP/DOWN, or KEY_NONE. */
 int ui_read_key(void);
-
-/* Get terminal width */
-int ui_get_width(void);
 
 #endif

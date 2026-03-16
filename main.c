@@ -1,17 +1,23 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
 
+#include "config.h"
 #include "device.h"
 #include "bt.h"
 #include "ui.h"
 #include "sysinfo.h"
-
+#include "printer.h"
+#include "network.h"
+#include "speedtest.h"
+#include "health.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
 #include <time.h>
+
+static const char *spinner_frames[] = { SPINNER_FRAMES };
 
 static volatile sig_atomic_t running = 1;
 static volatile sig_atomic_t need_resize = 0;
@@ -64,6 +70,14 @@ static void refresh_devices(Device *devs, int *count, int *selected)
             }
         }
     }
+}
+
+/* ── Timer helper ─────────────────────────────── */
+
+static long elapsed_ms(const struct timespec *last, const struct timespec *now)
+{
+    return (now->tv_sec - last->tv_sec) * 1000
+         + (now->tv_nsec - last->tv_nsec) / 1000000;
 }
 
 /* ── Non-interactive subcommands ────────────────── */
@@ -164,29 +178,302 @@ static int cmd_action(const char *action, const char *addr)
     return ret != 0;
 }
 
-/* ── Interactive TUI ────────────────────────────── */
+/* ── Interactive TUI state ─────────────────────── */
 
-static void interactive(void)
+typedef struct {
+    Device devs[MAX_DEVICES];
+    int count;
+    int selected;
+    int scanning;
+    int confirm_remove;
+    int confirm_quit;
+    char status_msg[512];
+    SysInfo si;
+    PrinterInfo pi;
+    NetworkInfo ni;
+    SpeedTestResult st;
+    HealthInfo hi;
+    struct timespec last_refresh;
+    struct timespec last_sysinfo;
+    struct timespec last_printer;
+    struct timespec last_network;
+    struct timespec last_speedtest;
+    struct timespec last_health;
+    struct timespec last_spinner;
+    struct timespec st_start;
+} AppState;
+
+static void redraw(AppState *s)
 {
-    if (bt_init() != 0) {
-        fprintf(stderr, "Error: bluetoothctl not available. Is bluez installed?\n");
+    ui_draw(s->devs, s->count, s->selected, s->scanning,
+            s->status_msg, &s->si, &s->pi, &s->ni, &s->st, &s->hi);
+}
+
+/* ── Key handling ──────────────────────────────── */
+
+static void handle_confirm_quit(AppState *s, int key)
+{
+    s->confirm_quit = 0;
+    if (key == 'y' || key == 'Y')
+        running = 0;
+    else
+        snprintf(s->status_msg, sizeof(s->status_msg), "Quit cancelled");
+}
+
+static void handle_confirm_remove(AppState *s, int key)
+{
+    s->confirm_remove = 0;
+    const char *addr = (s->count > 0 && s->selected < s->count)
+                     ? s->devs[s->selected].address : NULL;
+    if (key == 'y' || key == 'Y') {
+        if (addr) {
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Removing %s...", s->devs[s->selected].name);
+            redraw(s);
+            bt_remove(addr);
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Removed %s", s->devs[s->selected].name);
+            refresh_devices(s->devs, &s->count, &s->selected);
+            clock_gettime(CLOCK_MONOTONIC, &s->last_refresh);
+        }
+    } else {
+        snprintf(s->status_msg, sizeof(s->status_msg), "Remove cancelled");
+    }
+}
+
+static void handle_bt_action(AppState *s, int key)
+{
+    const char *addr = (s->count > 0 && s->selected < s->count)
+                     ? s->devs[s->selected].address : NULL;
+    int do_refresh = 0;
+
+    switch (key) {
+    case 'q': case 'Q':
+        s->confirm_quit = 1;
+        snprintf(s->status_msg, sizeof(s->status_msg), "Quit blue? [y/n]");
+        break;
+
+    case KEY_UP: case 'k':
+        if (s->selected > 0) s->selected--;
+        break;
+
+    case KEY_DOWN: case 'j':
+        if (s->selected < s->count - 1) s->selected++;
+        break;
+
+    case 's':
+        if (!s->scanning) {
+            bt_scan_start();
+            s->scanning = 1;
+            snprintf(s->status_msg, sizeof(s->status_msg), "Scan started");
+        } else {
+            bt_scan_stop();
+            s->scanning = 0;
+            snprintf(s->status_msg, sizeof(s->status_msg), "Scan stopped");
+        }
+        break;
+
+    case 'S':
+        if (!s->st.running) {
+            speedtest_start(&s->st);
+            clock_gettime(CLOCK_MONOTONIC, &s->last_speedtest);
+            clock_gettime(CLOCK_MONOTONIC, &s->st_start);
+        } else {
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Speedtest already running");
+        }
+        break;
+
+    case 'c': case 'C':
+        if (addr) {
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Connecting to %s...", s->devs[s->selected].name);
+            redraw(s);
+            bt_connect(addr);
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Connect sent to %s", s->devs[s->selected].name);
+            do_refresh = 1;
+        }
+        break;
+
+    case 'd': case 'D':
+        if (addr) {
+            bt_disconnect(addr);
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Disconnect sent to %s", s->devs[s->selected].name);
+            do_refresh = 1;
+        }
+        break;
+
+    case 'p': case 'P':
+        if (addr) {
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Pairing with %s...", s->devs[s->selected].name);
+            redraw(s);
+            bt_pair(addr);
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Pair sent to %s", s->devs[s->selected].name);
+            do_refresh = 1;
+        }
+        break;
+
+    case 't': case 'T':
+        if (addr) {
+            bt_trust(addr);
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Trust sent to %s", s->devs[s->selected].name);
+            do_refresh = 1;
+        }
+        break;
+
+    case 'x': case 'X':
+        if (addr) {
+            s->confirm_remove = 1;
+            snprintf(s->status_msg, sizeof(s->status_msg),
+                     "Remove %s (%s)? [y/n]",
+                     s->devs[s->selected].name, s->devs[s->selected].address);
+        }
+        break;
+
+    case 'r': case 'R':
+        snprintf(s->status_msg, sizeof(s->status_msg), "Refreshing...");
+        do_refresh = 1;
+        break;
+
+    default:
         return;
     }
 
-    Device devs[MAX_DEVICES];
-    int count = 0;
-    int selected = 0;
-    int scanning = 0;
-    int confirm_remove = 0; /* 1 = waiting for y/n confirmation */
-    char status_msg[512] = {0};
-    SysInfo si;
+    if (do_refresh) {
+        refresh_devices(s->devs, &s->count, &s->selected);
+        clock_gettime(CLOCK_MONOTONIC, &s->last_refresh);
+    }
+}
 
-    /* Initial loads */
-    refresh_devices(devs, &count, &selected);
-    sysinfo_read(&si);
+static void handle_key(AppState *s, int key)
+{
+    if (s->confirm_quit)
+        handle_confirm_quit(s, key);
+    else if (s->confirm_remove)
+        handle_confirm_remove(s, key);
+    else
+        handle_bt_action(s, key);
 
-    ui_init();
+    if (running)
+        redraw(s);
+}
 
+/* ── Speedtest progress bar ────────────────────── */
+
+static void build_progress_bar(char *bar, int bar_w, int pct)
+{
+    int filled = pct * bar_w / 100;
+    int pos = 0;
+    for (int i = 0; i < filled; i++) {
+        memcpy(&bar[pos], "\xe2\x96\x88", 3);
+        pos += 3;
+    }
+    for (int i = filled; i < bar_w; i++) {
+        memcpy(&bar[pos], "\xe2\x96\x91", 3);
+        pos += 3;
+    }
+    bar[pos] = '\0';
+}
+
+static void update_speedtest_status(AppState *s, const struct timespec *now)
+{
+    if (!s->st.running) return;
+
+    long ms = elapsed_ms(&s->st_start, now);
+    int elapsed_sec = (int)(ms / 1000);
+
+    if (elapsed_sec >= SPEEDTEST_EXPECTED_SEC) {
+        const char *frame = spinner_frames[s->st.spinner % SPINNER_FRAME_COUNT];
+        snprintf(s->status_msg, sizeof(s->status_msg),
+                 "Speedtest %s finishing...  %ds", frame, elapsed_sec);
+        return;
+    }
+
+    int pct = elapsed_sec * 100 / SPEEDTEST_EXPECTED_SEC;
+    char bar[128];
+    build_progress_bar(bar, 20, pct);
+    snprintf(s->status_msg, sizeof(s->status_msg),
+             "Speedtest %s %d%%  %ds", bar, pct, elapsed_sec);
+}
+
+/* ── Periodic refresh ──────────────────────────── */
+
+static void check_timers(AppState *s)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    int dirty = 0;
+
+    if (elapsed_ms(&s->last_sysinfo, &now) >= SYSINFO_REFRESH_MS) {
+        sysinfo_read(&s->si);
+        clock_gettime(CLOCK_MONOTONIC, &s->last_sysinfo);
+        dirty = 1;
+    }
+
+    if (elapsed_ms(&s->last_refresh, &now) >= BT_REFRESH_MS) {
+        refresh_devices(s->devs, &s->count, &s->selected);
+        sysinfo_read(&s->si);
+        if (!s->st.running)
+            s->status_msg[0] = '\0';
+        clock_gettime(CLOCK_MONOTONIC, &s->last_refresh);
+        clock_gettime(CLOCK_MONOTONIC, &s->last_sysinfo);
+        dirty = 1;
+    }
+
+    if (elapsed_ms(&s->last_printer, &now) >= PRINTER_REFRESH_MS) {
+        printer_read(&s->pi);
+        clock_gettime(CLOCK_MONOTONIC, &s->last_printer);
+        dirty = 1;
+    }
+
+    if (elapsed_ms(&s->last_network, &now) >= NETWORK_REFRESH_MS) {
+        char prev_ssid[64];
+        memcpy(prev_ssid, s->ni.ssid, sizeof(prev_ssid));
+        network_read(&s->ni);
+        if (strcmp(prev_ssid, s->ni.ssid) != 0)
+            speedtest_load_cache(&s->st, s->ni.ssid);
+        clock_gettime(CLOCK_MONOTONIC, &s->last_network);
+        dirty = 1;
+    }
+
+    if (elapsed_ms(&s->last_health, &now) >= HEALTH_REFRESH_MS) {
+        health_read(&s->hi);
+        clock_gettime(CLOCK_MONOTONIC, &s->last_health);
+        dirty = 1;
+    }
+
+    if (elapsed_ms(&s->last_speedtest, &now) >= SPEEDTEST_INTERVAL_MS) {
+        speedtest_start(&s->st);
+        clock_gettime(CLOCK_MONOTONIC, &s->last_speedtest);
+        clock_gettime(CLOCK_MONOTONIC, &s->st_start);
+        dirty = 1;
+    }
+
+    int st_was_running = s->st.running;
+    speedtest_poll(&s->st);
+    if (st_was_running && !s->st.running) {
+        s->status_msg[0] = '\0';
+        dirty = 1;
+    } else if (s->st.running
+               && elapsed_ms(&s->last_spinner, &now) >= SPEEDTEST_PROGRESS_MS) {
+        update_speedtest_status(s, &now);
+        clock_gettime(CLOCK_MONOTONIC, &s->last_spinner);
+        dirty = 1;
+    }
+
+    if (dirty)
+        redraw(s);
+}
+
+/* ── Interactive TUI ────────────────────────────── */
+
+static void setup_signals(void)
+{
     struct sigaction sa;
     sa.sa_handler = handle_signal;
     sigemptyset(&sa.sa_mask);
@@ -196,185 +483,60 @@ static void interactive(void)
 
     sa.sa_handler = handle_winch;
     sigaction(SIGWINCH, &sa, NULL);
+}
 
-    ui_draw(devs, count, selected, scanning, status_msg, &si);
+static void init_state(AppState *s)
+{
+    memset(s, 0, sizeof(*s));
+    refresh_devices(s->devs, &s->count, &s->selected);
+    sysinfo_read(&s->si);
+    printer_read(&s->pi);
+    network_read(&s->ni);
+    health_read(&s->hi);
+    speedtest_load_cache(&s->st, s->ni.ssid);
+    speedtest_start(&s->st);
 
-    struct timespec last_refresh, last_sysinfo;
-    clock_gettime(CLOCK_MONOTONIC, &last_refresh);
-    clock_gettime(CLOCK_MONOTONIC, &last_sysinfo);
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    s->last_refresh = now;
+    s->last_sysinfo = now;
+    s->last_printer = now;
+    s->last_network = now;
+    s->last_speedtest = now;
+    s->st_start = now;
+    s->last_health = now;
+    s->last_spinner = now;
+}
+
+static void interactive(void)
+{
+    if (bt_init() != 0) {
+        fprintf(stderr, "Error: bluetoothctl not available. Is bluez installed?\n");
+        return;
+    }
+
+    AppState s;
+    init_state(&s);
+
+    ui_init();
+    setup_signals();
+    redraw(&s);
 
     while (running) {
         int key = ui_read_key();
+        if (key != KEY_NONE)
+            handle_key(&s, key);
 
-        if (key != KEY_NONE) {
-            const char *addr = (count > 0 && selected < count)
-                             ? devs[selected].address : NULL;
-            int do_refresh = 0;
-            int do_redraw = 1;
-
-            /* ── Confirm-remove state: waiting for y/n ── */
-            if (confirm_remove) {
-                confirm_remove = 0;
-                if (key == 'y' || key == 'Y') {
-                    if (addr) {
-                        snprintf(status_msg, sizeof(status_msg),
-                                 "Removing %s...", devs[selected].name);
-                        ui_draw(devs, count, selected, scanning, status_msg, &si);
-                        bt_remove(addr);
-                        snprintf(status_msg, sizeof(status_msg),
-                                 "Removed %s", devs[selected].name);
-                        do_refresh = 1;
-                    }
-                } else {
-                    snprintf(status_msg, sizeof(status_msg), "Remove cancelled");
-                }
-            } else {
-
-            /* ── Normal key handling ── */
-            switch (key) {
-            case 'q':
-            case 'Q':
-                running = 0;
-                do_redraw = 0;
-                break;
-
-            /* Navigation — instant, no device refresh */
-            case KEY_UP:
-            case 'k':
-                if (selected > 0) selected--;
-                break;
-
-            case KEY_DOWN:
-            case 'j':
-                if (selected < count - 1) selected++;
-                break;
-
-            /* Scan toggle */
-            case 's':
-            case 'S':
-                if (!scanning) {
-                    bt_scan_start();
-                    scanning = 1;
-                    snprintf(status_msg, sizeof(status_msg), "Scan started");
-                } else {
-                    bt_scan_stop();
-                    scanning = 0;
-                    snprintf(status_msg, sizeof(status_msg), "Scan stopped");
-                }
-                break;
-
-            /* Connect — blocking command, show feedback */
-            case 'c':
-            case 'C':
-                if (addr) {
-                    snprintf(status_msg, sizeof(status_msg),
-                             "Connecting to %s...", devs[selected].name);
-                    ui_draw(devs, count, selected, scanning, status_msg, &si);
-                    bt_connect(addr);
-                    snprintf(status_msg, sizeof(status_msg),
-                             "Connect sent to %s", devs[selected].name);
-                    do_refresh = 1;
-                }
-                break;
-
-            case 'd':
-            case 'D':
-                if (addr) {
-                    bt_disconnect(addr);
-                    snprintf(status_msg, sizeof(status_msg),
-                             "Disconnect sent to %s", devs[selected].name);
-                    do_refresh = 1;
-                }
-                break;
-
-            case 'p':
-            case 'P':
-                if (addr) {
-                    snprintf(status_msg, sizeof(status_msg),
-                             "Pairing with %s...", devs[selected].name);
-                    ui_draw(devs, count, selected, scanning, status_msg, &si);
-                    bt_pair(addr);
-                    snprintf(status_msg, sizeof(status_msg),
-                             "Pair sent to %s", devs[selected].name);
-                    do_refresh = 1;
-                }
-                break;
-
-            case 't':
-            case 'T':
-                if (addr) {
-                    bt_trust(addr);
-                    snprintf(status_msg, sizeof(status_msg),
-                             "Trust sent to %s", devs[selected].name);
-                    do_refresh = 1;
-                }
-                break;
-
-            /* Remove — enter confirmation state */
-            case 'x':
-            case 'X':
-                if (addr) {
-                    confirm_remove = 1;
-                    snprintf(status_msg, sizeof(status_msg),
-                             "Remove %s (%s)? [y/n]",
-                             devs[selected].name, devs[selected].address);
-                }
-                break;
-
-            case 'r':
-            case 'R':
-                snprintf(status_msg, sizeof(status_msg), "Refreshing...");
-                do_refresh = 1;
-                break;
-
-            default:
-                do_redraw = 0;
-                break;
-            }
-
-            } /* end normal key handling */
-
-            if (do_refresh) {
-                refresh_devices(devs, &count, &selected);
-                clock_gettime(CLOCK_MONOTONIC, &last_refresh);
-            }
-            if (do_redraw)
-                ui_draw(devs, count, selected, scanning, status_msg, &si);
-        }
-
-        /* Handle terminal resize */
         if (need_resize) {
             need_resize = 0;
-            ui_draw(devs, count, selected, scanning, status_msg, &si);
+            redraw(&s);
         }
 
-        /* Sysinfo refresh every 1 second (live CPU/MEM/DSK) */
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        long si_elapsed = (now.tv_sec - last_sysinfo.tv_sec) * 1000
-                        + (now.tv_nsec - last_sysinfo.tv_nsec) / 1000000;
-        if (si_elapsed >= 1000) {
-            sysinfo_read(&si);
-            ui_draw(devs, count, selected, scanning, status_msg, &si);
-            clock_gettime(CLOCK_MONOTONIC, &last_sysinfo);
-        }
-
-        /* Bluetooth device refresh every 5 seconds */
-        long bt_elapsed = (now.tv_sec - last_refresh.tv_sec) * 1000
-                        + (now.tv_nsec - last_refresh.tv_nsec) / 1000000;
-        if (bt_elapsed >= 5000) {
-            refresh_devices(devs, &count, &selected);
-            sysinfo_read(&si);
-            status_msg[0] = '\0';
-            ui_draw(devs, count, selected, scanning, status_msg, &si);
-            clock_gettime(CLOCK_MONOTONIC, &last_refresh);
-            clock_gettime(CLOCK_MONOTONIC, &last_sysinfo);
-        }
-
-        usleep(50000); /* 50ms poll interval */
+        check_timers(&s);
+        usleep(UI_POLL_INTERVAL_US);
     }
 
-    if (scanning) bt_scan_stop();
+    if (s.scanning) bt_scan_stop();
     ui_cleanup();
     bt_cleanup();
 }
