@@ -148,7 +148,12 @@ void ui_init(void)
     int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
     fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
 
+    char host[64];
+    if (gethostname(host, sizeof(host)) != 0)
+        snprintf(host, sizeof(host), "unknown");
+
     printf("\033[?1049h");
+    printf("\033]0;%s - %s\007", TERMINAL_TITLE_PREFIX, host);
     printf("\033[?25l");
     fflush(stdout);
 }
@@ -495,6 +500,9 @@ static void render_pr_row(int row, const PrinterInfo *pi, int pane_w,
         else
             printf(" %sPrinter%s  %s" "\xe2\x97\x8f" "%s",
                    C_BOLD, C_RESET, C_BGREEN, C_RESET);
+        if (pi && pi->printer_total > 1)
+            printf(" %s%d/%d%s", C_DIM,
+                   pi->printer_index + 1, pi->printer_total, C_RESET);
     } else if (row == PR_BK_LINE) {
         printf(" %s", C_DIM);
         for (int i = 0; i < pane_w - 2; i++) fputs(B_H, stdout);
@@ -726,16 +734,14 @@ static void draw_header(int scanning, const SysInfo *si, const HealthInfo *hi)
 
 /* ── Device list rendering ─────────────────────── */
 
-static int draw_devices(Device *devs, int count, int selected,
-                        int bt_inner, int name_w, int pr_inner, int row,
-                        const NetworkInfo *ni, const SpeedTestResult *st,
-                        const PrinterInfo *pi, const HealthInfo *hi,
-                        const SysInfo *si)
+static void draw_bt_header(int bt_inner, int name_w, int pr_inner, int *row,
+                           const NetworkInfo *ni, const SpeedTestResult *st,
+                           const PrinterInfo *pi, const HealthInfo *hi,
+                           const SysInfo *si)
 {
-    /* BT column header */
     rs();
     printf(" %s%sBluetooth%s", C_BOLD, C_BCYAN, C_RESET);
-    panes_end(row++, ni, st, pi, pr_inner, hi, si);
+    panes_end((*row)++, ni, st, pi, pr_inner, hi, si);
 
     rs();
     printf(" %s", C_DIM);
@@ -744,13 +750,47 @@ static int draw_devices(Device *devs, int count, int selected,
     putfield("Status", 12);
     printf("  Battery");
     printf("%s", C_RESET);
-    panes_end(row++, ni, st, pi, pr_inner, hi, si);
+    panes_end((*row)++, ni, st, pi, pr_inner, hi, si);
 
     rs();
     printf(" %s", C_DIM);
     for (int i = 0; i < bt_inner - 2; i++) fputs(B_H, stdout);
     printf("%s", C_RESET);
-    panes_end(row++, ni, st, pi, pr_inner, hi, si);
+    panes_end((*row)++, ni, st, pi, pr_inner, hi, si);
+}
+
+static void draw_bt_device_row(const Device *d, int is_selected, int name_w,
+                               int pr_inner, int *row,
+                               const NetworkInfo *ni, const SpeedTestResult *st,
+                               const PrinterInfo *pi, const HealthInfo *hi,
+                               const SysInfo *si)
+{
+    const char *sc = status_color(d);
+    char batbuf[256];
+    render_battery(batbuf, sizeof(batbuf), d->battery, d->charging);
+
+    rs();
+    if (is_selected) {
+        printf("%s" "\xe2\x96\xb8" "%s %s", C_BCYAN, C_RESET, C_BOLD);
+        putfield(d->name, name_w);
+        printf("%s", C_RESET);
+    } else {
+        printf("  ");
+        putfield(d->name, name_w);
+    }
+
+    printf("  %s%-12s%s", sc, device_status(d), C_RESET);
+    printf("  %s", batbuf);
+    panes_end((*row)++, ni, st, pi, pr_inner, hi, si);
+}
+
+static int draw_devices(Device *devs, int count, int selected,
+                        int bt_inner, int name_w, int pr_inner, int row,
+                        const NetworkInfo *ni, const SpeedTestResult *st,
+                        const PrinterInfo *pi, const HealthInfo *hi,
+                        const SysInfo *si)
+{
+    draw_bt_header(bt_inner, name_w, pr_inner, &row, ni, st, pi, hi, si);
 
     if (count == 0) {
         rs(); panes_end(row++, ni, st, pi, pr_inner, hi, si);
@@ -762,42 +802,110 @@ static int draw_devices(Device *devs, int count, int selected,
     }
 
     for (int i = 0; i < count; i++) {
-        Device *d = &devs[i];
-
-        if (i > 0 && !d->connected && !d->paired
-            && (devs[i - 1].connected || devs[i - 1].paired)) {
-            rs();
-            printf(" %s", C_DIM);
-            for (int k = 0; k < bt_inner - 2; k++) fputs(B_H, stdout);
-            printf("%s", C_RESET);
-            panes_end(row++, ni, st, pi, pr_inner, hi, si);
-        }
-
-        const char *sc = status_color(d);
-        char batbuf[256];
-        render_battery(batbuf, sizeof(batbuf), d->battery, d->charging);
-
-        rs();
-        if (i == selected) {
-            printf("%s" "\xe2\x96\xb8" "%s %s", C_BCYAN, C_RESET, C_BOLD);
-            putfield(d->name, name_w);
-            printf("%s", C_RESET);
-        } else {
-            printf("  ");
-            putfield(d->name, name_w);
-        }
-
-        printf("  %s%-12s%s", sc, device_status(d), C_RESET);
-        printf("  %s", batbuf);
-        panes_end(row++, ni, st, pi, pr_inner, hi, si);
+        draw_bt_device_row(&devs[i], i == selected, name_w, pr_inner, &row,
+                           ni, st, pi, hi, si);
     }
+
+    return row;
+}
+
+/* ── Scan mode rendering ──────────────────────── */
+
+static void draw_scan_header(int bt_inner, int name_w, int pr_inner, int *row,
+                              const NetworkInfo *ni, const SpeedTestResult *st,
+                              const PrinterInfo *pi, const HealthInfo *hi,
+                              const SysInfo *si)
+{
+    rs();
+    printf(" %s%sBluetooth%s %s(scanning)%s",
+           C_BOLD, C_BCYAN, C_RESET, C_BYELLOW, C_RESET);
+    panes_end((*row)++, ni, st, pi, pr_inner, hi, si);
+
+    rs();
+    printf(" %s", C_DIM);
+    putfield("Device", name_w + 2);
+    printf("  Status");
+    printf("%s", C_RESET);
+    panes_end((*row)++, ni, st, pi, pr_inner, hi, si);
+
+    rs();
+    printf(" %s", C_DIM);
+    for (int i = 0; i < bt_inner - 2; i++) fputs(B_H, stdout);
+    printf("%s", C_RESET);
+    panes_end((*row)++, ni, st, pi, pr_inner, hi, si);
+}
+
+static void draw_scan_device_row(const Device *d, int is_selected, int name_w,
+                                  int pr_inner, int *row,
+                                  const NetworkInfo *ni,
+                                  const SpeedTestResult *st,
+                                  const PrinterInfo *pi, const HealthInfo *hi,
+                                  const SysInfo *si)
+{
+    rs();
+    if (is_selected) {
+        printf("%s" "\xe2\x96\xb8" "%s %s", C_BCYAN, C_RESET, C_BOLD);
+        putfield(d->name, name_w);
+        printf("%s", C_RESET);
+    } else {
+        printf("  ");
+        putfield(d->name, name_w);
+    }
+
+    printf("  %s%-12s%s", C_DIM, "Discovered", C_RESET);
+    panes_end((*row)++, ni, st, pi, pr_inner, hi, si);
+}
+
+static int draw_scan_devices(ScanView *scan, int bt_inner, int name_w,
+                              int pr_inner, int row, int min_rows,
+                              const NetworkInfo *ni, const SpeedTestResult *st,
+                              const PrinterInfo *pi, const HealthInfo *hi,
+                              const SysInfo *si)
+{
+    draw_scan_header(bt_inner, name_w, pr_inner, &row, ni, st, pi, hi, si);
+
+    int body_rows = min_rows - 4;
+    if (body_rows < 1) body_rows = 1;
+
+    /* Clamp scroll so selected item is always visible */
+    if (scan->selected >= scan->scroll + body_rows)
+        scan->scroll = scan->selected - body_rows + 1;
+    if (scan->scroll < 0)
+        scan->scroll = 0;
+
+    if (scan->count == 0) {
+        rs();
+        printf(" %sSearching...%s", C_DIM, C_RESET);
+        panes_end(row++, ni, st, pi, pr_inner, hi, si);
+        return row;
+    }
+
+    int scroll = scan->scroll;
+    int visible = scan->count - scroll;
+    if (visible > body_rows) visible = body_rows;
+    int has_up = scroll > 0;
+    int has_down = (scroll + visible) < scan->count;
+
+    for (int i = 0; i < visible; i++) {
+        int idx = scroll + i;
+        draw_scan_device_row(&scan->devs[idx], idx == scan->selected,
+                             name_w, pr_inner, &row, ni, st, pi, hi, si);
+    }
+
+    /* Scroll indicators and count */
+    rs();
+    printf(" %s", C_DIM);
+    if (has_up) printf("\xe2\x96\xb2" " ");
+    if (has_down) printf("\xe2\x96\xbc" " ");
+    printf("%d found%s", scan->count, C_RESET);
+    panes_end(row++, ni, st, pi, pr_inner, hi, si);
 
     return row;
 }
 
 /* ── Footer rendering ──────────────────────────── */
 
-static void draw_footer(const char *status_msg)
+static void draw_footer(const char *status_msg, int scanning)
 {
     if (status_msg && *status_msg) {
         rs();
@@ -807,15 +915,25 @@ static void draw_footer(const char *status_msg)
     }
 
     rs();
-    printf(" %ss%s Scan  %sS%s Speedtest  %sc%s Connect  %sd%s Disconnect  "
-           "%sp%s Pair  %st%s Trust  %sx%s Remove  "
-           "%sr%s Refresh  %sq%s Quit  "
-           "%s" "\xe2\x86\x91\xe2\x86\x93" "%s Nav",
-           C_BOLD, C_RESET, C_BOLD, C_RESET,
-           C_BOLD, C_RESET, C_BOLD, C_RESET,
-           C_BOLD, C_RESET, C_BOLD, C_RESET, C_BOLD, C_RESET,
-           C_BOLD, C_RESET, C_BOLD, C_RESET,
-           C_BOLD, C_RESET);
+    if (scanning) {
+        printf(" %ss%s Stop  %sc%s Connect  %sp%s Pair  %st%s Trust  "
+               "%sS%s Speedtest  %sr%s Refresh  %sq%s Quit  "
+               "%s" "\xe2\x86\x91\xe2\x86\x93" "%s Nav",
+               C_BOLD, C_RESET, C_BOLD, C_RESET,
+               C_BOLD, C_RESET, C_BOLD, C_RESET,
+               C_BOLD, C_RESET, C_BOLD, C_RESET, C_BOLD, C_RESET,
+               C_BOLD, C_RESET);
+    } else {
+        printf(" %ss%s Scan  %sS%s Speedtest  %sc%s Connect  %sd%s Disconnect  "
+               "%sp%s Pair  %st%s Trust  %sx%s Remove  "
+               "%sP%s Printer  %sr%s Refresh  %sq%s Quit  "
+               "%s" "\xe2\x86\x91\xe2\x86\x93" "%s Nav",
+               C_BOLD, C_RESET, C_BOLD, C_RESET,
+               C_BOLD, C_RESET, C_BOLD, C_RESET,
+               C_BOLD, C_RESET, C_BOLD, C_RESET, C_BOLD, C_RESET,
+               C_BOLD, C_RESET, C_BOLD, C_RESET, C_BOLD, C_RESET,
+               C_BOLD, C_RESET);
+    }
     re();
 
     fputs(B_BL, stdout);
@@ -824,12 +942,37 @@ static void draw_footer(const char *status_msg)
     printf("\033[J");
 }
 
+/* ── Startup splash ──────────────────────────────── */
+
+void ui_draw_startup(const char **steps, int done, int total)
+{
+    printf("\033[H");
+    printf("\033[2K\n");
+    printf("\033[2K  %s%sblue%s %s" "\xe2\x80\x94" "%s Device Management\n",
+           C_BOLD, C_BCYAN, C_RESET, C_DIM, C_RESET);
+    printf("\033[2K\n");
+
+    for (int i = 0; i < done; i++)
+        printf("\033[2K  %s" "\xe2\x9c\x93" " %s%s\n",
+               C_GREEN, steps[i], C_RESET);
+
+    if (done < total) {
+        const char *frame = spinner_frames[done % SPINNER_FRAME_COUNT];
+        printf("\033[2K  %s%s %s" "\xe2\x80\xa6" "%s\n",
+               C_BCYAN, frame, steps[done], C_RESET);
+    }
+
+    printf("\033[J");
+    fflush(stdout);
+}
+
 /* ── Main draw ─────────────────────────────────── */
 
 void ui_draw(Device *devs, int count, int selected, int scanning,
-             const char *status_msg, const SysInfo *si,
-             const PrinterInfo *pi, const NetworkInfo *ni,
-             const SpeedTestResult *st, const HealthInfo *hi)
+             ScanView *scan, const char *status_msg,
+             const SysInfo *si, const PrinterInfo *pi,
+             const NetworkInfo *ni, const SpeedTestResult *st,
+             const HealthInfo *hi)
 {
     int bt_inner, pr_inner, name_w;
     int min_rows = calc_layout(pi, hi, status_msg,
@@ -843,7 +986,12 @@ void ui_draw(Device *devs, int count, int selected, int scanning,
 
     draw_header(scanning, si, hi);
 
-    int row = draw_devices(devs, count, selected, bt_inner, name_w,
+    int row;
+    if (scan)
+        row = draw_scan_devices(scan, bt_inner, name_w, pr_inner,
+                                0, min_rows, ni, st, pi, hi, si);
+    else
+        row = draw_devices(devs, count, selected, bt_inner, name_w,
                            pr_inner, 0, ni, st, pi, hi, si);
 
     while (row < min_rows) {
@@ -852,7 +1000,7 @@ void ui_draw(Device *devs, int count, int selected, int scanning,
     }
 
     hline_4j(B_ML, B_BM, B_MR);
-    draw_footer(status_msg);
+    draw_footer(status_msg, scanning);
     fflush(stdout);
 
     /* Restore line buffering */

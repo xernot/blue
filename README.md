@@ -30,19 +30,19 @@ No libraries beyond libc, no ncurses, no dbus bindings. Just C and a terminal.
 ├─────────────────────────────┴──────────────────────┴────────────────────────┴──────────────────┤
 │  Speedtest ████████████░░░░░░░░ 62%  12s                                                      │
 ├────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  s Scan  S Speedtest  c Connect  d Disconnect  p Pair  t Trust  x Remove  r Refresh  q Quit   │
+│  s Scan  S Speedtest  c Connect  d Disconnect  p Pair  t Trust  x Remove  P Printer  r Refresh  q Quit │
 └────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Features
 
-**Bluetooth** — Scan, connect, disconnect, pair, trust, and remove devices. Live battery levels with colored bar indicators. Vim-style navigation (j/k) alongside arrow keys. Confirmation prompts for destructive actions.
+**Bluetooth** — Scan, connect, disconnect, pair, trust, and remove devices. Live battery levels with colored bar indicators. Vim-style navigation (j/k) alongside arrow keys. Confirmation prompts for destructive actions. Dedicated scan mode replaces the BT pane with discovered devices — navigate, pair, connect, or trust directly from the scan list.
 
 **Network** — WiFi SSID, IP, link speed, and signal strength (color-coded by dBm). Real internet speed test (download, upload, ping) runs in background — never blocks the UI. Auto-reruns every 10 minutes, or trigger manually with `S`.
 
 **Speedtest** — Results cached to disk (`~/.cache/blue/speedtest`) and loaded on startup. Progress bar in the status bar shows elapsed time during a run. Spinner indicator in the network pane while testing.
 
-**Printer** — Auto-discovers printers on the network via mDNS. CMYK toner levels with colored bars. Health section with imaging unit, fuser, and waste toner. Works on any network without configuration.
+**Printer** — Auto-discovers all printers on the network via mDNS. Cycle between them with `P`. CMYK toner levels with colored bars. Health section with imaging unit, fuser, and waste toner. Works on any network without configuration — switches seamlessly between home and office.
 
 **System** — Hostname and OS in the header bar. System pane shows laptop battery with charging indicator, kernel version, uptime, live CPU/memory/disk usage, disk I/O throughput (read/write MB/s), CPU temperature, fan speeds, and failed systemd services.
 
@@ -109,13 +109,14 @@ All action subcommands exit with `0` on success, `1` on failure — suitable for
 |-----|--------|
 | `↑` / `k` | Move selection up |
 | `↓` / `j` | Move selection down |
-| `s` | Toggle Bluetooth scanning |
+| `s` | Toggle scan mode (shows discovered devices; press again to stop) |
 | `S` | Start speed test |
 | `c` | Connect to selected device |
 | `d` | Disconnect selected device |
 | `p` | Pair with selected device |
 | `t` | Trust selected device |
 | `x` | Remove device (asks y/n) |
+| `P` | Cycle printer |
 | `r` | Refresh device list |
 | `q` | Quit (asks y/n) |
 
@@ -128,7 +129,9 @@ All tunables live in [`config.h`](config.h):
 | `PRINTER_SNMP_COMMUNITY` | `"public"` | SNMP community string |
 | `PRINTER_REFRESH_MS` | `60000` | Printer re-query interval |
 | `PRINTER_MAX_SUPPLIES` | `16` | Max supply entries to track |
+| `PRINTER_MAX_DISCOVERED` | `8` | Max printers to discover via mDNS |
 | `BT_REFRESH_MS` | `5000` | Bluetooth device list refresh |
+| `BT_SCAN_REFRESH_MS` | `2000` | Faster refresh during active scan |
 | `NETWORK_REFRESH_MS` | `5000` | WiFi status refresh |
 | `SPEEDTEST_INTERVAL_MS` | `600000` | Speed test auto-run (10 min) |
 | `SPEEDTEST_EXPECTED_SEC` | `20` | Expected test duration (progress bar) |
@@ -137,7 +140,7 @@ All tunables live in [`config.h`](config.h):
 | `HEALTH_MAX_FANS` | `4` | Max fan speed entries to track |
 | `THERMAL_ZONE_PREFERRED` | `"x86_pkg_temp"` | Preferred thermal zone for CPU temp |
 | `THERMAL_ZONE_FALLBACK` | `"acpitz"` | Fallback thermal zone |
-| `SPEEDTEST_CMD` | `"speedtest.sh"` | Speed test command name |
+| `SPEEDTEST_CMD` | `"speedtest-cli"` | Speed test command name |
 | `HEALTH_REFRESH_MS` | `2000` | Disk I/O / temp / fans / services refresh |
 | `UI_POLL_INTERVAL_US` | `50000` | Main loop poll (50ms) |
 
@@ -149,7 +152,7 @@ Speed test results are cached to `~/.cache/blue/speedtest` and loaded on startup
 main.c        — entry point, CLI parsing, event loop, key handling, timer management
 bt.c/h        — Bluetooth backend (bluetoothctl + upower subprocesses)
 ui.c/h        — TUI rendering (raw ANSI escape codes, 4-pane layout, full height, buffered output)
-printer.c/h   — Printer status via SNMP (auto-discovered via avahi mDNS)
+printer.c/h   — Printer discovery (mDNS) and status (SNMP), multi-printer support
 network.c/h   — WiFi status (iw + ip subprocesses)
 speedtest.c/h — Background speed test (fork + speedtest --simple, disk cache)
 sysinfo.c/h   — System stats (/proc, /sys, statvfs)
@@ -170,9 +173,9 @@ config.h      — all configurable constants
 
 **Single-threaded event loop.** Non-blocking stdin with 50ms poll. Independent timers drive each data source at different intervals.
 
-**Non-blocking speed test.** The `speedtest.sh --simple` command takes ~20 seconds. It runs in a `fork()`ed child process with a pipe — the UI stays fully responsive. Results are cached to disk so they persist across restarts. Progress bar switches to a spinner when exceeding the expected duration.
+**Non-blocking speed test.** The `speedtest-cli --simple` command takes ~20 seconds. It runs in a `fork()`ed child process with a pipe — the UI stays fully responsive. Results are cached to disk so they persist across restarts. Progress bar switches to a spinner when exceeding the expected duration.
 
-**Printer auto-discovery.** `avahi-browse _ipp._tcp` finds printers via mDNS/Bonjour. The discovered IP is cached; if the printer goes offline, re-discovery happens on the next refresh cycle. No hardcoded IPs.
+**Printer auto-discovery.** `avahi-browse _ipp._tcp` finds all printers via mDNS/Bonjour. Multiple printers are supported — cycle between them with `P`. Re-discovery happens on each refresh cycle. No hardcoded IPs; works seamlessly across networks.
 
 **Disk I/O throughput.** Computed by reading `/proc/diskstats` and calculating sector deltas between reads. Detects nvme and sd devices automatically.
 
@@ -187,9 +190,9 @@ config.h      — all configurable constants
 | Bluetooth devices | `bluetoothctl devices` + `bluetoothctl info <addr>` |
 | Device battery | BlueZ Battery Service + `upower -i` fallback |
 | WiFi info | `iw dev <iface> link` + `ip -4 addr show` |
-| Speed test | `speedtest.sh --simple` (forked background process) |
+| Speed test | `speedtest-cli --simple` (forked background process) |
 | Speed test cache | `~/.cache/blue/speedtest` |
-| Printer discovery | `avahi-browse -rpt _ipp._tcp` (mDNS) |
+| Printer discovery | `avahi-browse -rpt _ipp._tcp` (mDNS, all unique IPs) |
 | Printer supplies | `snmpget`/`snmpwalk` via Printer MIB OIDs |
 | OS name | `/etc/os-release` (PRETTY_NAME) |
 | Kernel version | `uname()` syscall |

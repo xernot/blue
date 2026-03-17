@@ -18,9 +18,6 @@
 #define OID_SUPPLY_MAX   "1.3.6.1.2.1.43.11.1.1.8"
 #define OID_SUPPLY_LEVEL "1.3.6.1.2.1.43.11.1.1.9"
 
-/* Cached discovered printer IP (persists across calls) */
-static char discovered_ip[46];
-
 static char *trim(char *s)
 {
     while (*s && isspace((unsigned char)*s)) s++;
@@ -30,36 +27,52 @@ static char *trim(char *s)
     return s;
 }
 
-/* Discover first network printer via mDNS (avahi-browse).
- * Writes IP into out, returns 0 on success. */
-static int discover_printer(char *out, size_t outsz)
+/* Check if ip is already in the array */
+static int ip_already_seen(char ips[][46], int count, const char *ip)
+{
+    for (int i = 0; i < count; i++) {
+        if (strcmp(ips[i], ip) == 0) return 1;
+    }
+    return 0;
+}
+
+/* Extract IP (field 7) from an avahi-browse '=' line */
+static int parse_avahi_ip(char *line, char *out, size_t outsz)
+{
+    char *field = line;
+    int idx = 0;
+    while (field && idx < 8) {
+        char *next = strchr(field, ';');
+        if (next) *next++ = '\0';
+        if (idx == 7) {
+            snprintf(out, outsz, "%s", trim(field));
+            return 0;
+        }
+        field = next;
+        idx++;
+    }
+    return -1;
+}
+
+int printer_discover(char ips[][46], int max)
 {
     FILE *fp = popen(
         "timeout 3 avahi-browse -rpt _ipp._tcp 2>/dev/null"
-        " | grep '^=' | head -1", "r");
-    if (!fp) return -1;
+        " | grep '^='", "r");
+    if (!fp) return 0;
 
     char line[1024];
-    int found = 0;
-    if (fgets(line, sizeof(line), fp)) {
-        /* Format: =;iface;proto;name;type;domain;hostname;address;port;"txt..."
-         * Fields separated by ';', IP is field 7 (0-indexed) */
-        char *field = line;
-        int idx = 0;
-        while (field && idx < 8) {
-            char *next = strchr(field, ';');
-            if (next) *next++ = '\0';
-            if (idx == 7) {
-                snprintf(out, outsz, "%s", trim(field));
-                found = 1;
-                break;
-            }
-            field = next;
-            idx++;
+    int count = 0;
+    while (fgets(line, sizeof(line), fp) && count < max) {
+        char ip[46];
+        if (parse_avahi_ip(line, ip, sizeof(ip)) == 0
+            && ip[0] && !ip_already_seen(ips, count, ip)) {
+            snprintf(ips[count], 46, "%s", ip);
+            count++;
         }
     }
     pclose(fp);
-    return found ? 0 : -1;
+    return count;
 }
 
 /* Run snmpget -v1 -c community -Oqv host oid, return trimmed value. */
@@ -131,26 +144,19 @@ static int is_toner_supply(const char *name)
     return 0;
 }
 
-void printer_read(PrinterInfo *pi)
+static void query_supplies(PrinterInfo *pi, const char *ip);
+
+void printer_read(PrinterInfo *pi, const char *ip)
 {
     memset(pi, 0, sizeof(*pi));
+    if (!ip || !ip[0]) return;
 
-    /* Use cached IP or discover a new one */
-    if (!discovered_ip[0]) {
-        if (discover_printer(discovered_ip, sizeof(discovered_ip)) != 0)
-            return;
-    }
-
-    snprintf(pi->ip, sizeof(pi->ip), "%s", discovered_ip);
+    snprintf(pi->ip, sizeof(pi->ip), "%s", ip);
 
     /* Check reachability by querying sysDescr */
     char descr[LINE_BUF];
-    if (snmp_get(discovered_ip, OID_DESCR, descr, sizeof(descr)) != 0) {
-        /* Printer gone — clear cache so we re-discover next time */
-        discovered_ip[0] = '\0';
-        pi->online = 0;
+    if (snmp_get(ip, OID_DESCR, descr, sizeof(descr)) != 0)
         return;
-    }
     pi->online = 1;
 
     /* Extract model: take text before first semicolon */
@@ -158,14 +164,18 @@ void printer_read(PrinterInfo *pi)
     if (semi) *semi = '\0';
     snprintf(pi->model, sizeof(pi->model), "%s", trim(descr));
 
-    /* Query supply names, max levels, and current levels */
+    query_supplies(pi, ip);
+}
+
+static void query_supplies(PrinterInfo *pi, const char *ip)
+{
     char names[PRINTER_MAX_SUPPLIES][LINE_BUF];
     char maxes[PRINTER_MAX_SUPPLIES][LINE_BUF];
     char levels[PRINTER_MAX_SUPPLIES][LINE_BUF];
 
-    int n_names  = snmp_walk(discovered_ip, OID_SUPPLY_NAME,  names,  PRINTER_MAX_SUPPLIES);
-    int n_maxes  = snmp_walk(discovered_ip, OID_SUPPLY_MAX,   maxes,  PRINTER_MAX_SUPPLIES);
-    int n_levels = snmp_walk(discovered_ip, OID_SUPPLY_LEVEL, levels, PRINTER_MAX_SUPPLIES);
+    int n_names  = snmp_walk(ip, OID_SUPPLY_NAME,  names,  PRINTER_MAX_SUPPLIES);
+    int n_maxes  = snmp_walk(ip, OID_SUPPLY_MAX,   maxes,  PRINTER_MAX_SUPPLIES);
+    int n_levels = snmp_walk(ip, OID_SUPPLY_LEVEL, levels, PRINTER_MAX_SUPPLIES);
 
     int count = n_names;
     if (n_maxes < count) count = n_maxes;
@@ -200,8 +210,15 @@ void printer_read(PrinterInfo *pi)
 
 #include <string.h>
 
-void printer_read(PrinterInfo *pi)
+int printer_discover(char ips[][46], int max)
 {
+    (void)ips; (void)max;
+    return 0;
+}
+
+void printer_read(PrinterInfo *pi, const char *ip)
+{
+    (void)ip;
     memset(pi, 0, sizeof(*pi));
 }
 

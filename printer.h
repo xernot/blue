@@ -15,9 +15,15 @@ typedef struct {
     char ip[46];                              /* discovered IP address */
     int supply_count;
     PrinterSupply supplies[PRINTER_MAX_SUPPLIES];
+    int printer_index;                        /* 0-based selected index (set by caller) */
+    int printer_total;                        /* total discovered printers (set by caller) */
 } PrinterInfo;
 
-/* Query printer via SNMP. Populates pi. */
-void printer_read(PrinterInfo *pi);
+/* Discover all network printers via mDNS. Writes unique IPv4
+ * addresses into ips array. Returns count (0 = none found). */
+int printer_discover(char ips[][46], int max);
+
+/* Query a specific printer by IP via SNMP. Populates pi. */
+void printer_read(PrinterInfo *pi, const char *ip);
 
 #endif

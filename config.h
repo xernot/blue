@@ -7,6 +7,10 @@
  * Requires: sudo apt install avahi-utils snmp       */
 #define PRINTER_SNMP_COMMUNITY "public"
 
+/* Maximum number of printers to discover via mDNS.
+ * Cycle through them with the P key.                */
+#define PRINTER_MAX_DISCOVERED 8
+
 /* How often to re-query the printer (milliseconds).
  * SNMP queries are cheap but no need to hammer it.  */
 #define PRINTER_REFRESH_MS  60000
@@ -18,6 +22,10 @@
 /* ── Bluetooth refresh ────────────────────────────
  * How often to re-query bluetoothctl (milliseconds) */
 #define BT_REFRESH_MS       5000
+
+/* How often to refresh BT device list during active scan.
+ * Faster than normal to pick up newly discovered devices. */
+#define BT_SCAN_REFRESH_MS  2000
 
 /* ── Network refresh ──────────────────────────────
  * How often to re-query wifi status (milliseconds)  */
@@ -31,7 +39,7 @@
 
 /* Speedtest command name (e.g. "speedtest", "speedtest.sh",
  * "speedtest-cli"). Must support --simple flag.     */
-#define SPEEDTEST_CMD "speedtest.sh"
+#define SPEEDTEST_CMD "speedtest-cli"
 
 /* Expected speedtest duration in seconds.
  * Used for the status bar progress bar.             */
@@ -73,8 +81,26 @@
 #define THERMAL_ZONE_PREFERRED "x86_pkg_temp"
 #define THERMAL_ZONE_FALLBACK  "acpitz"
 
+/* ── Startup step labels ─────────────────────────
+ * Shown on the splash screen while each subsystem
+ * initialises. Order must match startup_init().     */
+#define STARTUP_STEPS { \
+    "Bluetooth", \
+    "Devices", \
+    "System info", \
+    "Printer", \
+    "Network", \
+    "System health", \
+    "Speedtest" \
+}
+#define STARTUP_STEP_COUNT 7
+
 /* ── UI poll interval ─────────────────────────────
  * Main loop sleep between iterations (microseconds) */
+/* Terminal window title prefix (set via OSC escape on startup)
+ * Final title: "BLUE - <hostname>"                              */
+#define TERMINAL_TITLE_PREFIX "BLUE"
+
 #define UI_POLL_INTERVAL_US 50000
 
 /* ── Host display ────────────────────────────────

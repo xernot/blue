@@ -34,7 +34,56 @@ static void handle_winch(int sig)
     need_resize = 1;
 }
 
+/* ── Interactive TUI state ─────────────────────── */
+
+typedef struct {
+    Device devs[MAX_DEVICES];
+    int count;
+    int selected;
+    int scanning;
+    Device scan_devs[MAX_DEVICES];
+    int scan_count;
+    int scan_selected;
+    int scan_scroll;
+    int confirm_remove;
+    int confirm_quit;
+    char status_msg[512];
+    SysInfo si;
+    PrinterInfo pi;
+    char printer_ips[PRINTER_MAX_DISCOVERED][46];
+    int printer_count;
+    int printer_selected;
+    NetworkInfo ni;
+    SpeedTestResult st;
+    HealthInfo hi;
+    struct timespec last_refresh;
+    struct timespec last_sysinfo;
+    struct timespec last_printer;
+    struct timespec last_network;
+    struct timespec last_speedtest;
+    struct timespec last_health;
+    struct timespec last_spinner;
+    struct timespec st_start;
+} AppState;
+
 /* ── Helpers ────────────────────────────────────── */
+
+static const char *selected_printer_ip(const AppState *s)
+{
+    if (s->printer_count > 0 && s->printer_selected < s->printer_count)
+        return s->printer_ips[s->printer_selected];
+    return NULL;
+}
+
+static void refresh_printer(AppState *s)
+{
+    s->printer_count = printer_discover(s->printer_ips, PRINTER_MAX_DISCOVERED);
+    if (s->printer_selected >= s->printer_count)
+        s->printer_selected = 0;
+    printer_read(&s->pi, selected_printer_ip(s));
+    s->pi.printer_index = s->printer_selected;
+    s->pi.printer_total = s->printer_count;
+}
 
 /* Sort order: connected first, then paired, then discovered */
 static int device_rank(const Device *d)
@@ -49,26 +98,64 @@ static int cmp_devices(const void *a, const void *b)
     return device_rank((const Device *)a) - device_rank((const Device *)b);
 }
 
-static void refresh_devices(Device *devs, int *count, int *selected)
+static int filter_unpaired(Device *devs, int n)
 {
-    /* Remember selected device address before refresh */
-    char sel_addr[18] = {0};
-    if (*count > 0 && *selected < *count)
-        memcpy(sel_addr, devs[*selected].address, 18);
+    int kept = 0;
+    for (int i = 0; i < n; i++) {
+        if (devs[i].connected || devs[i].paired)
+            devs[kept++] = devs[i];
+    }
+    return kept;
+}
 
-    int n = bt_get_devices(devs, MAX_DEVICES);
-    if (n >= 0) {
-        *count = n;
-        qsort(devs, (size_t)n, sizeof(Device), cmp_devices);
+static int filter_discovered(Device *src, int n, Device *dst)
+{
+    int kept = 0;
+    for (int i = 0; i < n; i++) {
+        if (!src[i].connected && !src[i].paired)
+            dst[kept++] = src[i];
+    }
+    return kept;
+}
 
-        /* Restore selection to the same device */
-        *selected = 0;
-        for (int i = 0; i < n; i++) {
-            if (memcmp(devs[i].address, sel_addr, 18) == 0) {
-                *selected = i;
-                break;
-            }
+static void refresh_devices_list(Device *devs, int *count, int *selected,
+                                 char *sel_addr)
+{
+    *selected = 0;
+    for (int i = 0; i < *count; i++) {
+        if (memcmp(devs[i].address, sel_addr, 18) == 0) {
+            *selected = i;
+            break;
         }
+    }
+}
+
+static void refresh_devices(AppState *s)
+{
+    Device raw[MAX_DEVICES];
+    int n = bt_get_devices(raw, MAX_DEVICES);
+    if (n < 0) return;
+
+    /* Paired/connected list */
+    char sel_addr[18] = {0};
+    if (s->count > 0 && s->selected < s->count)
+        memcpy(sel_addr, s->devs[s->selected].address, 18);
+
+    s->count = filter_unpaired(raw, n);
+    memcpy(s->devs, raw, (size_t)s->count * sizeof(Device));
+    qsort(s->devs, (size_t)s->count, sizeof(Device), cmp_devices);
+    refresh_devices_list(s->devs, &s->count, &s->selected, sel_addr);
+
+    /* Scan list (only when scanning) */
+    if (s->scanning) {
+        char scan_addr[18] = {0};
+        if (s->scan_count > 0 && s->scan_selected < s->scan_count)
+            memcpy(scan_addr, s->scan_devs[s->scan_selected].address, 18);
+
+        s->scan_count = filter_discovered(raw, n, s->scan_devs);
+        qsort(s->scan_devs, (size_t)s->scan_count, sizeof(Device), cmp_devices);
+        refresh_devices_list(s->scan_devs, &s->scan_count,
+                             &s->scan_selected, scan_addr);
     }
 }
 
@@ -178,35 +265,30 @@ static int cmd_action(const char *action, const char *addr)
     return ret != 0;
 }
 
-/* ── Interactive TUI state ─────────────────────── */
-
-typedef struct {
-    Device devs[MAX_DEVICES];
-    int count;
-    int selected;
-    int scanning;
-    int confirm_remove;
-    int confirm_quit;
-    char status_msg[512];
-    SysInfo si;
-    PrinterInfo pi;
-    NetworkInfo ni;
-    SpeedTestResult st;
-    HealthInfo hi;
-    struct timespec last_refresh;
-    struct timespec last_sysinfo;
-    struct timespec last_printer;
-    struct timespec last_network;
-    struct timespec last_speedtest;
-    struct timespec last_health;
-    struct timespec last_spinner;
-    struct timespec st_start;
-} AppState;
+static const Device *active_device(const AppState *s)
+{
+    if (s->scanning && s->scan_count > 0 && s->scan_selected < s->scan_count)
+        return &s->scan_devs[s->scan_selected];
+    if (s->count > 0 && s->selected < s->count)
+        return &s->devs[s->selected];
+    return NULL;
+}
 
 static void redraw(AppState *s)
 {
+    ScanView sv;
+    ScanView *scan = NULL;
+    if (s->scanning) {
+        sv.devs = s->scan_devs;
+        sv.count = s->scan_count;
+        sv.selected = s->scan_selected;
+        sv.scroll = s->scan_scroll;
+        scan = &sv;
+    }
     ui_draw(s->devs, s->count, s->selected, s->scanning,
-            s->status_msg, &s->si, &s->pi, &s->ni, &s->st, &s->hi);
+            scan, s->status_msg, &s->si, &s->pi, &s->ni, &s->st, &s->hi);
+    if (scan)
+        s->scan_scroll = scan->scroll;
 }
 
 /* ── Key handling ──────────────────────────────── */
@@ -233,7 +315,7 @@ static void handle_confirm_remove(AppState *s, int key)
             bt_remove(addr);
             snprintf(s->status_msg, sizeof(s->status_msg),
                      "Removed %s", s->devs[s->selected].name);
-            refresh_devices(s->devs, &s->count, &s->selected);
+            refresh_devices(s);
             clock_gettime(CLOCK_MONOTONIC, &s->last_refresh);
         }
     } else {
@@ -241,10 +323,102 @@ static void handle_confirm_remove(AppState *s, int key)
     }
 }
 
+static void handle_nav_keys(AppState *s, int key)
+{
+    if (s->scanning) {
+        if (key == KEY_UP || key == 'k') {
+            if (s->scan_selected > 0) s->scan_selected--;
+        } else {
+            if (s->scan_selected < s->scan_count - 1) s->scan_selected++;
+        }
+        /* Scroll up if selected went above visible area */
+        if (s->scan_selected < s->scan_scroll)
+            s->scan_scroll = s->scan_selected;
+        /* Scroll down clamping done by draw_scan_devices in ui.c */
+    } else {
+        if (key == KEY_UP || key == 'k') {
+            if (s->selected > 0) s->selected--;
+        } else {
+            if (s->selected < s->count - 1) s->selected++;
+        }
+    }
+}
+
+static void handle_scan_toggle(AppState *s)
+{
+    if (!s->scanning) {
+        bt_scan_start();
+        s->scanning = 1;
+        s->scan_count = 0;
+        s->scan_selected = 0;
+        s->scan_scroll = 0;
+        snprintf(s->status_msg, sizeof(s->status_msg), "Scan started");
+        refresh_devices(s);
+        clock_gettime(CLOCK_MONOTONIC, &s->last_refresh);
+    } else {
+        bt_scan_stop();
+        s->scanning = 0;
+        s->scan_count = 0;
+        snprintf(s->status_msg, sizeof(s->status_msg), "Scan stopped");
+    }
+}
+
+static void set_status(AppState *s, const char *fmt, const char *name)
+{
+    snprintf(s->status_msg, sizeof(s->status_msg), fmt, name);
+}
+
+static int handle_device_key(AppState *s, int key, const char *addr,
+                              const char *name)
+{
+    if (!addr) return 0;
+
+    switch (key) {
+    case 'c': case 'C':
+        set_status(s, "Connecting to %s...", name);
+        redraw(s);
+        bt_connect(addr);
+        set_status(s, "Connect sent to %s", name);
+        return 1;
+    case 'd': case 'D':
+        if (s->scanning) return 0;
+        bt_disconnect(addr);
+        set_status(s, "Disconnect sent to %s", name);
+        return 1;
+    case 'p': case 'P':
+        set_status(s, "Pairing with %s...", name);
+        redraw(s);
+        bt_pair(addr);
+        set_status(s, "Pair sent to %s", name);
+        return 1;
+    case 't': case 'T':
+        bt_trust(addr);
+        set_status(s, "Trust sent to %s", name);
+        return 1;
+    case 'x': case 'X':
+        if (s->scanning) return 0;
+        s->confirm_remove = 1;
+        snprintf(s->status_msg, sizeof(s->status_msg),
+                 "Remove %s (%s)? [y/n]", name, addr);
+        return 0;
+    }
+    return 0;
+}
+
+static void handle_printer_cycle(AppState *s)
+{
+    if (s->printer_count <= 1) return;
+    s->printer_selected = (s->printer_selected + 1) % s->printer_count;
+    printer_read(&s->pi, selected_printer_ip(s));
+    s->pi.printer_index = s->printer_selected;
+    s->pi.printer_total = s->printer_count;
+}
+
 static void handle_bt_action(AppState *s, int key)
 {
-    const char *addr = (s->count > 0 && s->selected < s->count)
-                     ? s->devs[s->selected].address : NULL;
+    const Device *ad = active_device(s);
+    const char *addr = ad ? ad->address : NULL;
+    const char *name = ad ? ad->name : NULL;
     int do_refresh = 0;
 
     switch (key) {
@@ -252,27 +426,13 @@ static void handle_bt_action(AppState *s, int key)
         s->confirm_quit = 1;
         snprintf(s->status_msg, sizeof(s->status_msg), "Quit blue? [y/n]");
         break;
-
     case KEY_UP: case 'k':
-        if (s->selected > 0) s->selected--;
-        break;
-
     case KEY_DOWN: case 'j':
-        if (s->selected < s->count - 1) s->selected++;
+        handle_nav_keys(s, key);
         break;
-
     case 's':
-        if (!s->scanning) {
-            bt_scan_start();
-            s->scanning = 1;
-            snprintf(s->status_msg, sizeof(s->status_msg), "Scan started");
-        } else {
-            bt_scan_stop();
-            s->scanning = 0;
-            snprintf(s->status_msg, sizeof(s->status_msg), "Scan stopped");
-        }
+        handle_scan_toggle(s);
         break;
-
     case 'S':
         if (!s->st.running) {
             speedtest_start(&s->st);
@@ -283,69 +443,21 @@ static void handle_bt_action(AppState *s, int key)
                      "Speedtest already running");
         }
         break;
-
-    case 'c': case 'C':
-        if (addr) {
-            snprintf(s->status_msg, sizeof(s->status_msg),
-                     "Connecting to %s...", s->devs[s->selected].name);
-            redraw(s);
-            bt_connect(addr);
-            snprintf(s->status_msg, sizeof(s->status_msg),
-                     "Connect sent to %s", s->devs[s->selected].name);
-            do_refresh = 1;
-        }
+    case 'P':
+        handle_printer_cycle(s);
         break;
-
-    case 'd': case 'D':
-        if (addr) {
-            bt_disconnect(addr);
-            snprintf(s->status_msg, sizeof(s->status_msg),
-                     "Disconnect sent to %s", s->devs[s->selected].name);
-            do_refresh = 1;
-        }
-        break;
-
-    case 'p': case 'P':
-        if (addr) {
-            snprintf(s->status_msg, sizeof(s->status_msg),
-                     "Pairing with %s...", s->devs[s->selected].name);
-            redraw(s);
-            bt_pair(addr);
-            snprintf(s->status_msg, sizeof(s->status_msg),
-                     "Pair sent to %s", s->devs[s->selected].name);
-            do_refresh = 1;
-        }
-        break;
-
-    case 't': case 'T':
-        if (addr) {
-            bt_trust(addr);
-            snprintf(s->status_msg, sizeof(s->status_msg),
-                     "Trust sent to %s", s->devs[s->selected].name);
-            do_refresh = 1;
-        }
-        break;
-
-    case 'x': case 'X':
-        if (addr) {
-            s->confirm_remove = 1;
-            snprintf(s->status_msg, sizeof(s->status_msg),
-                     "Remove %s (%s)? [y/n]",
-                     s->devs[s->selected].name, s->devs[s->selected].address);
-        }
-        break;
-
     case 'r': case 'R':
         snprintf(s->status_msg, sizeof(s->status_msg), "Refreshing...");
         do_refresh = 1;
         break;
-
     default:
-        return;
+        do_refresh = handle_device_key(s, key, addr, name);
+        if (!do_refresh) return;
+        break;
     }
 
     if (do_refresh) {
-        refresh_devices(s->devs, &s->count, &s->selected);
+        refresh_devices(s);
         clock_gettime(CLOCK_MONOTONIC, &s->last_refresh);
     }
 }
@@ -415,18 +527,21 @@ static void check_timers(AppState *s)
         dirty = 1;
     }
 
-    if (elapsed_ms(&s->last_refresh, &now) >= BT_REFRESH_MS) {
-        refresh_devices(s->devs, &s->count, &s->selected);
-        sysinfo_read(&s->si);
-        if (!s->st.running)
-            s->status_msg[0] = '\0';
-        clock_gettime(CLOCK_MONOTONIC, &s->last_refresh);
-        clock_gettime(CLOCK_MONOTONIC, &s->last_sysinfo);
-        dirty = 1;
+    {
+        long bt_interval = s->scanning ? BT_SCAN_REFRESH_MS : BT_REFRESH_MS;
+        if (elapsed_ms(&s->last_refresh, &now) >= bt_interval) {
+            refresh_devices(s);
+            sysinfo_read(&s->si);
+            if (!s->st.running)
+                s->status_msg[0] = '\0';
+            clock_gettime(CLOCK_MONOTONIC, &s->last_refresh);
+            clock_gettime(CLOCK_MONOTONIC, &s->last_sysinfo);
+            dirty = 1;
+        }
     }
 
     if (elapsed_ms(&s->last_printer, &now) >= PRINTER_REFRESH_MS) {
-        printer_read(&s->pi);
+        refresh_printer(s);
         clock_gettime(CLOCK_MONOTONIC, &s->last_printer);
         dirty = 1;
     }
@@ -485,17 +600,8 @@ static void setup_signals(void)
     sigaction(SIGWINCH, &sa, NULL);
 }
 
-static void init_state(AppState *s)
+static void init_timers(AppState *s)
 {
-    memset(s, 0, sizeof(*s));
-    refresh_devices(s->devs, &s->count, &s->selected);
-    sysinfo_read(&s->si);
-    printer_read(&s->pi);
-    network_read(&s->ni);
-    health_read(&s->hi);
-    speedtest_load_cache(&s->st, s->ni.ssid);
-    speedtest_start(&s->st);
-
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     s->last_refresh = now;
@@ -508,18 +614,52 @@ static void init_state(AppState *s)
     s->last_spinner = now;
 }
 
-static void interactive(void)
+static int startup_init(AppState *s)
 {
+    static const char *steps[] = STARTUP_STEPS;
+    int step = 0;
+
+    ui_draw_startup(steps, step, STARTUP_STEP_COUNT);
     if (bt_init() != 0) {
+        ui_cleanup();
         fprintf(stderr, "Error: bluetoothctl not available. Is bluez installed?\n");
-        return;
+        return -1;
     }
 
+    ui_draw_startup(steps, ++step, STARTUP_STEP_COUNT);
+    refresh_devices(s);
+
+    ui_draw_startup(steps, ++step, STARTUP_STEP_COUNT);
+    sysinfo_read(&s->si);
+
+    ui_draw_startup(steps, ++step, STARTUP_STEP_COUNT);
+    refresh_printer(s);
+
+    ui_draw_startup(steps, ++step, STARTUP_STEP_COUNT);
+    network_read(&s->ni);
+
+    ui_draw_startup(steps, ++step, STARTUP_STEP_COUNT);
+    health_read(&s->hi);
+
+    ui_draw_startup(steps, ++step, STARTUP_STEP_COUNT);
+    speedtest_load_cache(&s->st, s->ni.ssid);
+    speedtest_start(&s->st);
+
+    init_timers(s);
+    return 0;
+}
+
+static void interactive(void)
+{
     AppState s;
-    init_state(&s);
+    memset(&s, 0, sizeof(s));
 
     ui_init();
     setup_signals();
+
+    if (startup_init(&s) != 0)
+        return;
+
     redraw(&s);
 
     while (running) {
