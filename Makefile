@@ -1,15 +1,20 @@
 CC      ?= gcc
-CFLAGS  ?= -Wall -Wextra -pedantic -std=c11
-SRCS = main.c bt.c ui.c sysinfo.c printer.c network.c speedtest.c health.c
-OBJS = $(SRCS:.c=.o)
-BIN  = blue
+CFLAGS  ?= -Wall -Wextra -pedantic -std=c11 -Iinclude
+
+SRCDIR = src
+SRCS   = $(SRCDIR)/main.c $(SRCDIR)/bt.c $(SRCDIR)/ui.c $(SRCDIR)/sysinfo.c \
+         $(SRCDIR)/printer.c $(SRCDIR)/network.c $(SRCDIR)/speedtest.c $(SRCDIR)/health.c
+OBJS   = $(SRCS:.c=.o)
+BIN    = blue
+
+HDRS   = $(wildcard include/*.h)
 
 all: $(BIN)
 
 $(BIN): $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS)
 
-%.o: %.c config.h device.h bt.h ui.h sysinfo.h printer.h network.h speedtest.h health.h
+$(SRCDIR)/%.o: $(SRCDIR)/%.c $(HDRS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:

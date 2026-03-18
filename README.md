@@ -156,16 +156,19 @@ Speed test results are cached to `~/.cache/blue/speedtest` and loaded on startup
 ## Architecture
 
 ```
-main.c        — entry point, CLI parsing, event loop, key handling, timer management
-bt.c/h        — Bluetooth backend (bluetoothctl + upower subprocesses)
-ui.c/h        — TUI rendering (raw ANSI escape codes, 4-pane layout, full height, buffered output)
-printer.c/h   — Printer discovery (mDNS) and status (SNMP), multi-printer support
-network.c/h   — WiFi status (iw + ip subprocesses)
-speedtest.c/h — Background speed test (fork + speedtest --simple, disk cache)
-sysinfo.c/h   — System stats (/proc, /sys, statvfs)
-health.c/h    — System health (OS, kernel, uptime, disk I/O, CPU temp, fan speed, failed services)
-device.h      — shared device_t struct
-config.h      — all configurable constants (colors, layout, paths, commands, timing)
+src/
+  main.c        — entry point, CLI parsing, event loop, key handling, timer management
+  bt.c          — Bluetooth backend (bluetoothctl + upower subprocesses)
+  ui.c          — TUI rendering (raw ANSI escape codes, 4-pane layout, full height, buffered output)
+  printer.c     — Printer discovery (mDNS) and status (SNMP), multi-printer support
+  network.c     — WiFi status (iw + ip subprocesses)
+  speedtest.c   — Background speed test (fork + speedtest --simple, disk cache)
+  sysinfo.c     — System stats (/proc, /sys, statvfs)
+  health.c      — System health (OS, kernel, uptime, disk I/O, CPU temp, fan speed, failed services)
+include/
+  bt.h, ui.h, printer.h, network.h, speedtest.h, sysinfo.h, health.h — module headers
+  device.h      — shared device_t struct
+  config.h      — all configurable constants (colors, layout, paths, commands, timing)
 ```
 
 ### Design decisions
