@@ -2,25 +2,25 @@
 #define UI_H
 
 #include "device.h"
-#include "sysinfo.h"
-#include "printer.h"
-#include "network.h"
-#include "speedtest.h"
 #include "health.h"
+#include "network.h"
+#include "printer.h"
+#include "speedtest.h"
+#include "sysinfo.h"
 
 /* Key codes returned by ui_read_key() */
-#define KEY_NONE   -1
-#define KEY_UP     1000
-#define KEY_DOWN   1001
+#define KEY_NONE -1
+#define KEY_UP 1000
+#define KEY_DOWN 1001
 #define KEY_ESCAPE 27
 
 /* Scan mode view state (passed to ui_draw when scanning) */
 typedef struct {
-    Device *devs;
-    int count;
-    int selected;
-    int scroll;
-} ScanView;
+  device_t *devs;
+  int count;
+  int selected;
+  int scroll;
+} scan_view_t;
 
 /* Enter raw mode, hide cursor, clear screen */
 void ui_init(void);
@@ -33,11 +33,10 @@ void ui_cleanup(void);
 void ui_draw_startup(const char **steps, int done, int total);
 
 /* Full screen redraw. scan is NULL when not in scan mode. */
-void ui_draw(Device *devs, int count, int selected, int scanning,
-             ScanView *scan, const char *status_msg,
-             const SysInfo *si, const PrinterInfo *pi,
-             const NetworkInfo *ni, const SpeedTestResult *st,
-             const HealthInfo *hi);
+void ui_draw(device_t *devs, int count, int selected, int scanning,
+             scan_view_t *scan, const char *status_msg, const sys_info_t *si,
+             const printer_info_t *pi, const network_info_t *ni,
+             const speed_test_result_t *st, const health_info_t *hi);
 
 /* Non-blocking key read. Returns character, KEY_UP/DOWN, or KEY_NONE. */
 int ui_read_key(void);

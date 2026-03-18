@@ -15,8 +15,9 @@ int bt_scan_start(void);
 /* Stop scanning. Returns 0 on success. */
 int bt_scan_stop(void);
 
-/* Populate devs array with known devices. Returns device count, or -1 on error. */
-int bt_get_devices(Device *devs, int max);
+/* Populate devs array with known devices. Returns device count, or -1 on error.
+ */
+int bt_get_devices(device_t *devs, int max);
 
 /* Connect to device by address. Returns 0 on success. */
 int bt_connect(const char *addr);

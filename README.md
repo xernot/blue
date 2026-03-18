@@ -137,12 +137,19 @@ All tunables live in [`config.h`](config.h):
 | `SPEEDTEST_EXPECTED_SEC` | `20` | Expected test duration (progress bar) |
 | `SPEEDTEST_PROGRESS_MS` | `500` | Progress bar update interval |
 | `SYSINFO_REFRESH_MS` | `1000` | CPU/mem/disk refresh |
+| `HEALTH_REFRESH_MS` | `2000` | Disk I/O / temp / fans / services refresh |
 | `HEALTH_MAX_FANS` | `4` | Max fan speed entries to track |
 | `THERMAL_ZONE_PREFERRED` | `"x86_pkg_temp"` | Preferred thermal zone for CPU temp |
 | `THERMAL_ZONE_FALLBACK` | `"acpitz"` | Fallback thermal zone |
 | `SPEEDTEST_CMD` | `"speedtest-cli"` | Speed test command name |
-| `HEALTH_REFRESH_MS` | `2000` | Disk I/O / temp / fans / services refresh |
 | `UI_POLL_INTERVAL_US` | `50000` | Main loop poll (50ms) |
+| `PANE_SYS_WIDTH` | `24` | System pane width |
+| `PANE_PR_WIDTH` | `26` | Printer pane width |
+| `PANE_NET_WIDTH` | `24` | Network pane width |
+| `MIN_TERM_COLS` | `100` | Minimum terminal columns |
+| `MIN_TERM_ROWS` | `16` | Minimum terminal rows |
+
+`config.h` also centralizes ANSI color codes, box-drawing characters, pane row indices, buffer sizes, system paths, SNMP OIDs, and command templates. See the file for the full list.
 
 Speed test results are cached to `~/.cache/blue/speedtest` and loaded on startup.
 
@@ -157,8 +164,8 @@ network.c/h   — WiFi status (iw + ip subprocesses)
 speedtest.c/h — Background speed test (fork + speedtest --simple, disk cache)
 sysinfo.c/h   — System stats (/proc, /sys, statvfs)
 health.c/h    — System health (OS, kernel, uptime, disk I/O, CPU temp, fan speed, failed services)
-device.h      — shared Device struct
-config.h      — all configurable constants
+device.h      — shared device_t struct
+config.h      — all configurable constants (colors, layout, paths, commands, timing)
 ```
 
 ### Design decisions

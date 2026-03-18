@@ -2,15 +2,15 @@
 #define NETWORK_H
 
 typedef struct {
-    int connected;        /* 1 if wifi associated */
-    char ssid[64];        /* network name */
-    char ip[46];          /* IPv4 address */
-    int signal_dbm;       /* signal strength in dBm */
-    int speed_mbps;       /* TX link speed (Mbit/s) */
-    char iface[32];       /* interface name (e.g. wlp0s20f3) */
-} NetworkInfo;
+  int connected;  /* 1 if wifi associated */
+  char ssid[64];  /* network name */
+  char ip[46];    /* IPv4 address */
+  int signal_dbm; /* signal strength in dBm */
+  int speed_mbps; /* TX link speed (Mbit/s) */
+  char iface[32]; /* interface name (e.g. wlp0s20f3) */
+} network_info_t;
 
 /* Query current wifi status. Call periodically for live updates. */
-void network_read(NetworkInfo *ni);
+void network_read(network_info_t *ni);
 
 #endif
