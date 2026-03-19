@@ -122,7 +122,7 @@ All action subcommands exit with `0` on success, `1` on failure — suitable for
 
 ## Configuration
 
-All tunables live in [`config.h`](config.h):
+All tunables live in [`include/config.h`](include/config.h):
 
 | Constant | Default | Description |
 |----------|---------|-------------|
