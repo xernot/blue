@@ -134,27 +134,13 @@ void bt_cleanup(void) {}
 int bt_scan_start(void) {
   if (!bluetoothctl_available)
     return -1;
-  FILE *fp = popen(CMD_BTCTL_SCAN_ON, "r");
-  if (!fp)
-    return -1;
-  char line[LINE_BUF];
-  while (fgets(line, sizeof(line), fp)) {
-  }
-  pclose(fp);
-  return 0;
+  return system(CMD_BTCTL_SCAN_ON) == -1 ? -1 : 0;
 }
 
 int bt_scan_stop(void) {
   if (!bluetoothctl_available)
     return -1;
-  FILE *fp = popen(CMD_BTCTL_SCAN_OFF, "r");
-  if (!fp)
-    return -1;
-  char line[LINE_BUF];
-  while (fgets(line, sizeof(line), fp)) {
-  }
-  pclose(fp);
-  return 0;
+  return system(CMD_BTCTL_SCAN_OFF) == -1 ? -1 : 0;
 }
 
 /* Parse "Device XX:XX:XX:XX:XX:XX Name Here" lines */

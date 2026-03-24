@@ -96,13 +96,14 @@
 /* ── Buffer sizes ────────────────────────────────
  * Shared buffer sizes for command strings,
  * line reads, and path construction.              */
-#define CMD_BUF 1024               /* Command string buffer */
-#define LINE_BUF 512               /* Single-line read buffer */
-#define PATH_BUF 512               /* File path buffer */
-#define MAX_UPOWER_PATHS 64        /* Max cached upower device paths */
-#define SECTOR_BYTES 512           /* Disk sector size for I/O calculation */
-#define FRAME_BUF_SIZE (64 * 1024) /* Frame buffer for flicker-free rendering  \
-                                    */
+#define CMD_BUF 1024        /* Command string buffer */
+#define LINE_BUF 512        /* Single-line read buffer */
+#define PATH_BUF 512        /* File path buffer */
+#define MAX_UPOWER_PATHS 64 /* Max cached upower device paths */
+#define SECTOR_BYTES 512    /* Disk sector size for I/O calculation */
+#define FRAME_BUF_SIZE                                                         \
+  (64 * 1024) /* Frame buffer for flicker-free rendering                       \
+               */
 
 /* ── SNMP OIDs (Printer MIB) ────────────────────
  * Standard OIDs for printer supply monitoring.    */
@@ -111,8 +112,9 @@
   "1.3.6.1.2.1.43.11.1.1.6" /* prtMarkerSuppliesDescription */
 #define OID_SUPPLY_MAX                                                         \
   "1.3.6.1.2.1.43.11.1.1.8" /* prtMarkerSuppliesMaxCapacity */
-#define OID_SUPPLY_LEVEL "1.3.6.1.2.1.43.11.1.1.9" /* prtMarkerSuppliesLevel   \
-                                                    */
+#define OID_SUPPLY_LEVEL                                                       \
+  "1.3.6.1.2.1.43.11.1.1.9" /* prtMarkerSuppliesLevel                          \
+                             */
 
 /* ── System paths ────────────────────────────────
  * Paths to sysfs/procfs entries read by the TUI.  */
@@ -134,8 +136,9 @@
  * use %s for addresses, interfaces, OIDs, etc.    */
 #define CMD_BTCTL_VERSION "bluetoothctl --version 2>/dev/null"
 #define CMD_BTCTL_DEVICES "bluetoothctl devices 2>/dev/null"
-#define CMD_BTCTL_SCAN_ON "timeout 1 bluetoothctl scan on 2>/dev/null"
-#define CMD_BTCTL_SCAN_OFF "timeout 1 bluetoothctl scan off 2>/dev/null"
+#define CMD_BTCTL_SCAN_ON "timeout -k 1 1 bluetoothctl scan on >/dev/null 2>&1"
+#define CMD_BTCTL_SCAN_OFF                                                     \
+  "timeout -k 1 1 bluetoothctl scan off >/dev/null 2>&1"
 #define CMD_BTCTL_ACTION "bluetoothctl %s %s 2>&1"
 #define CMD_BTCTL_INFO "bluetoothctl info %s 2>/dev/null"
 #define CMD_UPOWER_ENUM "upower -e 2>/dev/null"
