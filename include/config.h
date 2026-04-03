@@ -39,6 +39,7 @@
 #define NET_DL 10        /* Download speed */
 #define NET_UL 11        /* Upload speed */
 #define NET_PING 12      /* Ping latency */
+#define NET_ST_TIME 13   /* Last speedtest date/time */
 #define NET_ST_RUN 14    /* Speedtest running indicator */
 #define NET_GRAPH_HDR 16 /* History graph header */
 #define NET_GRAPH_TOP 17 /* Top row of braille graph */
@@ -189,13 +190,19 @@
  * 600000 = 10 minutes                              */
 #define SPEEDTEST_INTERVAL_MS 600000
 
-/* Speedtest command name (e.g. "speedtest", "speedtest.sh",
- * "speedtest-cli"). Must support --simple flag.     */
-#define SPEEDTEST_CMD "speedtest-cli"
+/* Speedtest command name. Ookla official CLI outputs JSON
+ * with bandwidth in bytes/sec.                       */
+#define SPEEDTEST_CMD "speedtest-ookla"
 
-/* Expected speedtest duration in seconds.
- * Used for the status bar progress bar.             */
-#define SPEEDTEST_EXPECTED_SEC 20
+/* Arguments for JSON output with live progress lines */
+#define SPEEDTEST_ARG_FORMAT "--format=json"
+#define SPEEDTEST_ARG_PROGRESS "--progress=yes"
+
+/* Speedtest progress weights (percent of overall bar).
+ * Ping phase gets 5%, download 55%, upload 40%.      */
+#define ST_PHASE_PING_WEIGHT 5
+#define ST_PHASE_DL_WEIGHT 55
+#define ST_PHASE_UL_WEIGHT 40
 
 /* Spinner frames for speedtest progress indicator   */
 #define SPINNER_FRAMES                                                         \

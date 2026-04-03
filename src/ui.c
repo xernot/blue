@@ -270,6 +270,12 @@ static void render_st_header(void) {
   printf(" %sSpeedtest%s", C_BOLD, C_RESET);
 }
 
+static void render_st_time(const speed_test_result_t *st) {
+  if (!st || !st->has_result)
+    return;
+  printf(" %sLast%s    %s%s%s", C_DIM, C_RESET, C_DIM, st->timestamp, C_RESET);
+}
+
 static void render_st_status(const speed_test_result_t *st) {
   if (!st || !st->running)
     return;
@@ -298,8 +304,8 @@ static void render_st_upload(const speed_test_result_t *st) {
 static void render_st_ping(const speed_test_result_t *st) {
   if (!st || !st->has_result)
     return;
-  printf(" %sPing%s   %s%.0f ms%s  %s%s%s", C_DIM, C_RESET, C_DIM, st->ping_ms,
-         C_RESET, C_DIM, st->timestamp, C_RESET);
+  printf(" %sPing%s   %s%.0f ms%s", C_DIM, C_RESET, C_DIM, st->ping_ms,
+         C_RESET);
 }
 
 /* ── Network pane helpers ─────────────────────── */
@@ -380,6 +386,8 @@ static void render_net_row(int row, const network_info_t *ni,
     render_st_upload(st);
   else if (row == NET_PING)
     render_st_ping(st);
+  else if (row == NET_ST_TIME)
+    render_st_time(st);
   else if (row == NET_ST_RUN)
     render_st_status(st);
   else if (row == NET_GRAPH_HDR || row == NET_GRAPH_TOP || row == NET_GRAPH_BOT)

@@ -3,15 +3,26 @@
 
 #include "config.h"
 
+/* Speedtest phase identifiers */
+#define ST_PHASE_IDLE 0
+#define ST_PHASE_PING 1
+#define ST_PHASE_DOWNLOAD 2
+#define ST_PHASE_UPLOAD 3
+
 typedef struct {
-  int running;       /* 1 if test is in progress */
-  int has_result;    /* 1 if we have valid data */
-  double ping_ms;    /* latency in ms */
-  int download_mbps; /* download speed (Mbit/s, rounded) */
-  int upload_mbps;   /* upload speed (Mbit/s, rounded) */
-  char timestamp[6]; /* "HH:MM" of last test */
-  int spinner;       /* frame counter for spinner animation */
-  char ssid[64];     /* current SSID for per-network caching */
+  int running;        /* 1 if test is in progress */
+  int has_result;     /* 1 if we have valid data */
+  double ping_ms;     /* latency in ms */
+  int download_mbps;  /* download speed (Mbit/s, rounded) */
+  int upload_mbps;    /* upload speed (Mbit/s, rounded) */
+  char timestamp[18]; /* "Mar 28, 14:30" of last test */
+  int spinner;        /* frame counter for spinner animation */
+  char ssid[64];      /* current SSID for per-network caching */
+
+  /* Live progress from Ookla CLI */
+  int phase;        /* ST_PHASE_IDLE/PING/DOWNLOAD/UPLOAD */
+  int progress_pct; /* 0–100 overall progress */
+  int live_mbps;    /* current bandwidth during dl/ul phase */
 
   /* History for sparkline graph (newest last) */
   int history_count;

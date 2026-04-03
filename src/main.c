@@ -17,8 +17,6 @@
 #include <time.h>
 #include <unistd.h>
 
-static const char *spinner_frames[] = {SPINNER_FRAMES};
-
 static volatile sig_atomic_t running = 1;
 static volatile sig_atomic_t need_resize = 0;
 
@@ -61,7 +59,6 @@ typedef struct {
   struct timespec last_speedtest;
   struct timespec last_health;
   struct timespec last_spinner;
-  struct timespec st_start;
 } app_state_t;
 
 /* ── Helpers ────────────────────────────────────── */
@@ -427,7 +424,7 @@ static void handle_speedtest_key(app_state_t *s) {
   if (!s->st.running) {
     speedtest_start(&s->st);
     clock_gettime(CLOCK_MONOTONIC, &s->last_speedtest);
-    clock_gettime(CLOCK_MONOTONIC, &s->st_start);
+
   } else {
     snprintf(s->status_msg, sizeof(s->status_msg), "Speedtest already running");
   }
@@ -504,26 +501,37 @@ static void build_progress_bar(char *bar, int bar_w, int pct) {
   bar[pos] = '\0';
 }
 
+static const char *phase_label(int phase) {
+  if (phase == ST_PHASE_PING)
+    return "Ping";
+  if (phase == ST_PHASE_DOWNLOAD)
+    return "\xe2\x86\x93 Download";
+  if (phase == ST_PHASE_UPLOAD)
+    return "\xe2\x86\x91 Upload";
+  return "Speedtest";
+}
+
 static void update_speedtest_status(app_state_t *s,
                                     const struct timespec *now) {
   if (!s->st.running)
     return;
+  (void)now;
 
-  long ms = elapsed_ms(&s->st_start, now);
-  int elapsed_sec = (int)(ms / 1000);
+  int pct = s->st.progress_pct;
+  if (pct > 100)
+    pct = 100;
 
-  if (elapsed_sec >= SPEEDTEST_EXPECTED_SEC) {
-    const char *frame = spinner_frames[s->st.spinner % SPINNER_FRAME_COUNT];
-    snprintf(s->status_msg, sizeof(s->status_msg),
-             "Speedtest %s finishing...  %ds", frame, elapsed_sec);
-    return;
-  }
-
-  int pct = elapsed_sec * 100 / SPEEDTEST_EXPECTED_SEC;
   char bar[128];
   build_progress_bar(bar, 20, pct);
-  snprintf(s->status_msg, sizeof(s->status_msg), "Speedtest %s %d%%  %ds", bar,
-           pct, elapsed_sec);
+
+  const char *label = phase_label(s->st.phase);
+  if (s->st.live_mbps > 0 && s->st.phase >= ST_PHASE_DOWNLOAD) {
+    snprintf(s->status_msg, sizeof(s->status_msg), "%s %s %d%%  %s %d Mbit/s",
+             label, bar, pct, label, s->st.live_mbps);
+  } else {
+    snprintf(s->status_msg, sizeof(s->status_msg), "%s %s %d%%", label, bar,
+             pct);
+  }
 }
 
 /* ── Periodic refresh ──────────────────────────── */
@@ -582,7 +590,7 @@ static int check_speedtest_timer(app_state_t *s, const struct timespec *now) {
   if (elapsed_ms(&s->last_speedtest, now) >= SPEEDTEST_INTERVAL_MS) {
     speedtest_start(&s->st);
     clock_gettime(CLOCK_MONOTONIC, &s->last_speedtest);
-    clock_gettime(CLOCK_MONOTONIC, &s->st_start);
+
     dirty = 1;
   }
 
@@ -638,7 +646,6 @@ static void init_timers(app_state_t *s) {
   s->last_printer = now;
   s->last_network = now;
   s->last_speedtest = now;
-  s->st_start = now;
   s->last_health = now;
   s->last_spinner = now;
 }
