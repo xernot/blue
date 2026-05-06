@@ -185,10 +185,8 @@
 #define NETWORK_REFRESH_MS 5000
 
 /* ── Speedtest ────────────────────────────────────
- * How often to auto-run speedtest (milliseconds).
- * Runs in background, does not block UI.
- * 600000 = 10 minutes                              */
-#define SPEEDTEST_INTERVAL_MS 600000
+ * Speedtest is user-triggered only (manual run via keypress).
+ * Runs in background, does not block UI.            */
 
 /* Speedtest command name. Ookla official CLI outputs JSON
  * with bandwidth in bytes/sec.                       */

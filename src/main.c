@@ -56,7 +56,6 @@ typedef struct {
   struct timespec last_sysinfo;
   struct timespec last_printer;
   struct timespec last_network;
-  struct timespec last_speedtest;
   struct timespec last_health;
   struct timespec last_spinner;
 } app_state_t;
@@ -423,8 +422,6 @@ static void handle_printer_cycle(app_state_t *s) {
 static void handle_speedtest_key(app_state_t *s) {
   if (!s->st.running) {
     speedtest_start(&s->st);
-    clock_gettime(CLOCK_MONOTONIC, &s->last_speedtest);
-
   } else {
     snprintf(s->status_msg, sizeof(s->status_msg), "Speedtest already running");
   }
@@ -585,15 +582,8 @@ static int check_health_timer(app_state_t *s, const struct timespec *now) {
   return 1;
 }
 
-static int check_speedtest_timer(app_state_t *s, const struct timespec *now) {
+static int poll_speedtest(app_state_t *s, const struct timespec *now) {
   int dirty = 0;
-  if (elapsed_ms(&s->last_speedtest, now) >= SPEEDTEST_INTERVAL_MS) {
-    speedtest_start(&s->st);
-    clock_gettime(CLOCK_MONOTONIC, &s->last_speedtest);
-
-    dirty = 1;
-  }
-
   int st_was_running = s->st.running;
   speedtest_poll(&s->st);
   if (st_was_running && !s->st.running) {
@@ -618,7 +608,7 @@ static void check_timers(app_state_t *s) {
   dirty |= check_printer_timer(s, &now);
   dirty |= check_network_timer(s, &now);
   dirty |= check_health_timer(s, &now);
-  dirty |= check_speedtest_timer(s, &now);
+  dirty |= poll_speedtest(s, &now);
 
   if (dirty)
     redraw(s);
@@ -645,7 +635,6 @@ static void init_timers(app_state_t *s) {
   s->last_sysinfo = now;
   s->last_printer = now;
   s->last_network = now;
-  s->last_speedtest = now;
   s->last_health = now;
   s->last_spinner = now;
 }
@@ -678,7 +667,6 @@ static int startup_init(app_state_t *s) {
 
   ui_draw_startup(steps, ++step, STARTUP_STEP_COUNT);
   speedtest_load_cache(&s->st, s->ni.ssid);
-  speedtest_start(&s->st);
 
   init_timers(s);
   return 0;
